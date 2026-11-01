@@ -73,7 +73,7 @@ const SPK = { T: ['Tudor', '#8FD0FF'], A: ['Agent', '#FFD166'], R: ['Researcher'
     let html = '', so = 0;
     for (let j = 0; j < s.tm.lines.length; j++) { const [a, b] = s.tm.lines[j]; if (lt >= a - .15 && lt < b + .5) { const l = s.sd.lines[j];
       html = (l.who !== 'N' && SPK[l.who] ? `<b style="color:${SPK[l.who][1]}">${SPK[l.who][0]}:</b> ` : '') + l.text; so = Math.min(1, (lt - a + .15) / .25, (b + .5 - lt) / .25); break; } }
-    if (html !== lastSub) { subEl.innerHTML = html; lastSub = html; }
+    if (html !== lastSub) { subEl.innerHTML = html; lastSub = html; subEl.style.fontSize = html.length > 125 ? '.86em' : ''; }
     subEl.style.opacity = f2(so);
     fillEl.style.width = (100 * Math.min(T, TOTAL) / TOTAL).toFixed(3) + '%';
   }

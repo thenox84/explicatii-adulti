@@ -185,16 +185,16 @@ SCENE(10, { build(world, cue) {
     const checked = Math.floor(clamp((lt - L(4) - 1.2) / 3.6, 0, 1) * 5 + .001);
     app.set({ q: qOn ? 'sar'.slice(0, n) : '', qc: qOn && lt < L(2) + 2.6, fp, fav, shop, checked, tab: 0, tap: tapO > 0 ? { x: 258, y: 191, o: tapO } : null });
     /* ---- avionul, plicul, scrisoarea ---- */
-    const fl = prog(lt, L(5) - .1, 1.3, t => t);
+    const fl = prog(lt, L(5) - .5, 1.1, t => t);
     const pa = arcPos(fl, [wx + 120, wy + 120], [1240, 420], 120);
     op(plane, fl > 0 && fl < 1 ? 1 : 0); tf(plane, pa[0], pa[1], 20 + Math.sin(fl * 9) * 12, 1);
-    const ev = pop(lt, L(5) + 1.2, .5) * (1 - prog(lt, L(5) + 2.3, .3));
+    const ev = pop(lt, L(5) + .6, .45) * (1 - prog(lt, L(5) + 1.6, .3));
     op(env, ev > 0 ? 1 : 0); tf(env, 1240, 420, 0, Math.max(.01, ev));
-    flap.setAttribute('transform', `scale(1,${f2(1 - 2 * prog(lt, L(5) + 1.7, .4))})`);
-    const lv = pop(lt, L(5) + 2.1, .6) * (1 - prog(lt, L(8) - 1.1, .5));
+    flap.setAttribute('transform', `scale(1,${f2(1 - 2 * prog(lt, L(5) + 1.0, .4))})`);
+    const lv = pop(lt, L(5) + 1.5, .6) * (1 - prog(lt, L(8) - 1.1, .5));
     op(letter, lv > 0 ? 1 : 0);
     tf(letter, LX + (LW / 2) * (1 - lv) + (1240 - LX - LW / 2) * (1 - lv), LY + (LH / 2) * (1 - lv) + (420 - LY - LH / 2) * (1 - lv), 0, Math.max(.01, lv));
-    const st = [L(5) + 2.6, L(5) + 3.8, L(6) + .3, L(7) + .2];
+    const st = [L(5) + 2.0, L(5) + 3.2, L(6) + .3, L(7) + .2];
     secs.forEach((s, i) => { const v = prog(lt, st[i], .45); op(s, v); });
     const sv = [L(7) + 1.4, L(7) + 3.6, L(7) + 5.6];
     steps.forEach((s, i) => op(s, prog(lt, sv[i], .4)));

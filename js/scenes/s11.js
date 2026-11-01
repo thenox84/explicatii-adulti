@@ -85,7 +85,7 @@ SCENE(11, { build(world, cue) {
     s11_house(400, 470, '#E3EEF9', '#4D96FF', 'lupa', 'Understanding'),
     s11_house(612, 580, '#FFF1C9', '#F2994A', 'list', 'Plan', { ly: 52 }),
     s11_house(830, 470, '#E9E1FF', '#9B5DE5', 'team', 'Helpers'),
-    s11_house(925, 380, '#E5E9F0', '#5C6378', 'hammer', 'Tools', { lx: -96, ly: -40 }),
+    s11_house(925, 380, '#E5E9F0', '#5C6378', 'hammer', 'Tools', { lx: 95, ly: -52 }),
     s11_house(1290, 640, '#FFE3E3', '#E84855', 'gear', 'Errors & fixes', { ly: 50 }),
     s11_house(1370, 470, '#DDF5E8', '#3BB273', 'check', 'Checking', { ly: 50 }),
   ];

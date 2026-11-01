@@ -133,12 +133,12 @@ SCENE(8, { build(world, cue) {
   const okTrail = []; for (let i = 0; i < 10; i++) okTrail.push(E('circle', { r: 7 - i * .5, fill: '#9BF0B8' }, world));
   /* panoul de decizie */
   const dec = G(world);
-  E('rect', { x: -380, y: -84, width: 760, height: 168, rx: 28, fill: '#000', 'fill-opacity': .3, transform: 'translate(6,10)' }, dec);
-  E('rect', { x: -380, y: -84, width: 760, height: 168, rx: 28, fill: '#FBF7EE' }, dec);
-  TX(dec, 0, -42, 'The human decides', 26, '#5A4A30', { a: 'middle', w: 800 });
-  const dA = G(dec); tf(dA, -170, 22); const dAr = E('rect', { x: -150, y: -34, width: 300, height: 68, rx: 34, fill: '#2F9E5B' }, dA);
+  E('rect', { x: -380, y: -72, width: 760, height: 144, rx: 28, fill: '#000', 'fill-opacity': .3, transform: 'translate(6,10)' }, dec);
+  E('rect', { x: -380, y: -72, width: 760, height: 144, rx: 28, fill: '#FBF7EE' }, dec);
+  TX(dec, 0, -36, 'The human decides', 26, '#5A4A30', { a: 'middle', w: 800 });
+  const dA = G(dec); tf(dA, -170, 20); const dAr = E('rect', { x: -150, y: -34, width: 300, height: 68, rx: 34, fill: '#2F9E5B' }, dA);
   const dAi = G(dA); tf(dAi, -88, 0); icon(dAi, 'check', 30, '#fff', 5); TX(dA, 16, 11, 'Allow', 30, '#fff', { a: 'middle', w: 800 });
-  const dR = G(dec); tf(dR, 170, 22); const dRr = E('rect', { x: -150, y: -34, width: 300, height: 68, rx: 34, fill: '#D64550' }, dR);
+  const dR = G(dec); tf(dR, 170, 20); const dRr = E('rect', { x: -150, y: -34, width: 300, height: 68, rx: 34, fill: '#D64550' }, dR);
   const dRi = G(dR); tf(dRi, -88, 0); icon(dRi, 'cross', 26, '#fff', 5); TX(dR, 16, 11, 'Refuse', 30, '#fff', { a: 'middle', w: 800 });
   const stamp = G(dec); tf(stamp, 0, 18, -8);
   E('rect', { x: -230, y: -40, width: 460, height: 80, rx: 14, fill: '#FBF7EE', 'fill-opacity': .85, stroke: '#2F6FDB', 'stroke-width': 6 }, stamp);
@@ -266,7 +266,7 @@ SCENE(8, { build(world, cue) {
     holoGlow.setAttribute('ry', f2(190 + 10 * Math.sin(at * 3)));
     /* panouri */
     const dv = pop(lt, L(4) + .1, .6) * (1 - prog(lt, L(5) - .6, .4));
-    op(dec, dv > 0 ? 1 : 0); tf(dec, 800, 168, 0, Math.max(.01, dv));
+    op(dec, dv > 0 ? 1 : 0); tf(dec, 800, 128, 0, Math.max(.01, dv));
     const alt = Math.sin(at * 4) > 0;
     const pre = lt < Le(4) - 2.2;
     dAr.setAttribute('fill', pre ? (alt ? '#2F9E5B' : '#5C8A6E') : '#2F9E5B'); dRr.setAttribute('fill', pre ? (alt ? '#8E5A5E' : '#D64550') : '#8E5A5E');

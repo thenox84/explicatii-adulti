@@ -42,7 +42,7 @@ SCENE(2, { build(world, cue) {
   E('rect', { x: -95, y: -40, width: 190, height: 80, rx: 10, fill: '#D63A3A' }, tbIn);
   E('rect', { x: -95, y: -40, width: 190, height: 14, fill: '#B52E2E' }, tbIn);
   E('rect', { x: -14, y: -16, width: 28, height: 14, rx: 3, fill: '#C9CFDE' }, tbIn);
-  const tbInside = E('rect', { x: -88, y: -40, width: 176, height: 12, rx: 4, fill: '#2B1416' }, tbIn);
+  const tbInside = E('rect', { x: -90, y: -52, width: 180, height: 16, rx: 4, fill: '#2B1416' }, tbIn);
   const lid = G(tbIn); E('rect', { x: -98, y: -58, width: 196, height: 22, rx: 8, fill: '#E84855' }, lid); E('path', { d: 'M-30,-58 V-74 H30 V-58', stroke: '#3A3F55', 'stroke-width': 8, fill: 'none' }, lid);
   const web = G(tbIn); E('path', { d: 'M98,-58 L60,-34 M98,-58 L76,-10 M98,-58 L98,-6 M68,-46 Q82,-40 88,-28 M76,-36 Q86,-30 92,-18 M80,-52 Q90,-44 96,-36', stroke: '#E8EEF8', 'stroke-width': 1.6, fill: 'none', opacity: .8 }, web);
   const dust = G(tbIn); for (let k = 0; k < 6; k++) E('circle', { cx: -70 + k * 26, cy: -62, r: 3, fill: '#CFC6B2', opacity: .6 }, dust);
@@ -185,7 +185,7 @@ SCENE(2, { build(world, cue) {
     op(web, 1 - prog(lt, tTools - .7, .3)); op(dust, 1 - prog(lt, tTools - .7, .3));
     const pf = prog(lt, tTools - .7, .9, easeOut); op(puff, pf > 0 && pf < 1 ? (1 - pf) * .8 : 0);
     puffs.forEach((p, k) => { const a = k / 8 * Math.PI * 2; tf(p, 1230 + Math.cos(a) * 80 * pf, 520 + Math.sin(a) * 40 * pf, 0, .6 + pf); });
-    const lidP = lt > L(8) - .4 ? prog(lt, L(8) - .2, .6, easeBack) : 0; lid.setAttribute('transform', `translate(0,${f2(-30 * lidP)}) translate(0,-58) scale(1,${f2(1 - .55 * lidP)}) translate(0,58)`); op(tbInside, lidP);
+    const lidP = lt > L(8) - .4 ? prog(lt, L(8) - .2, .6, easeBack) : 0; lid.setAttribute('transform', `translate(0,-58) scale(1,${f2(1 - .7 * lidP)}) translate(0,58)`); op(tbInside, lidP);
     /* Tudor cu lista */
     const tIn = keyed(lt, [[L(2) - .9, 1720], [L(2) + 1.1, 1040], [L(3) - .9, 1040], [L(3) + .9, 1760]], t => t);
     const tWalk = (lt > L(2) - .9 && lt < L(2) + 1.1) || (lt > L(3) - .9 && lt < L(3) + .9);
