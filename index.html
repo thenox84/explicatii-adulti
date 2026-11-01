@@ -30,6 +30,7 @@
   #snd{position:fixed;right:14px;bottom:38px;z-index:6;background:rgba(10,10,20,.7);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:20px;
     padding:6px 13px;font:600 13px/1 inherit;font-family:inherit;cursor:pointer;opacity:.45;transition:opacity .4s}
   body.ui #snd,#snd.off{opacity:1}
+  @media (max-width:900px),(max-height:500px){#snd{bottom:34px;right:8px;padding:5px 8px;font-size:12px}#snd .lbl{display:none}}
   #paused{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(10,10,20,.75);padding:12px 22px;border-radius:30px;font-size:17px;pointer-events:none;opacity:0;transition:opacity .25s;z-index:6}
   #paused.on{opacity:1}
   #hint{position:fixed;left:16px;right:16px;bottom:44px;text-align:center;color:#A9B1C7;font-size:14px;display:none;pointer-events:none}
@@ -48,7 +49,7 @@
 <div id="sub"><span id="subtext"></span></div>
 <div id="bar"><div id="track"><div id="fill"></div></div></div>
 <div id="tip"></div>
-<button id="snd" class="off">🔇 Sound off</button>
+<button id="snd" class="off">🔇<span class="lbl"> Sound off</span></button>
 <div id="hint">Tip: turn your phone sideways for a bigger picture.</div>
 <div id="paused">⏸ Paused — tap or press Space to continue</div>
 <div id="start"><button id="play" aria-label="Play with sound">▶</button><div class="t1">Play with sound</div><button id="mute">or watch without sound</button></div>

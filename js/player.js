@@ -48,7 +48,7 @@ const SPK = { T: ['Tudor', '#8FD0FF'], A: ['Agent', '#FFD166'], R: ['Researcher'
   const board = woodSign(sign, 560, 116, '', {});
   const signN = TX(sign, 0, 44, '', 20, '#FFE7B8', { a: 'middle', w: 700, ls: 4 });
   const signT = TX(sign, 0, 88, '', 36, '#FFF6E5', { a: 'middle', w: 800 });
-  const tag = G(overlay); const tagN = TX(tag, 40, 52, '', 15, '#FFE7B8', { w: 700, ls: 3 }); const tagT = TX(tag, 40, 78, '', 22, '#FFF6E5', { w: 700 });
+  const tag = G(overlay); const tagBg = E('rect', { x: 26, y: 30, width: 300, height: 60, rx: 14, fill: '#0E0C18', 'fill-opacity': .55 }, tag); const tagN = TX(tag, 40, 52, '', 15, '#FFE7B8', { w: 700, ls: 3 }); const tagT = TX(tag, 40, 78, '', 22, '#FFF6E5', { w: 700 });
   tag.setAttribute('style', 'paint-order:stroke');[tagN, tagT].forEach(t => { t.setAttribute('stroke', '#000'); t.setAttribute('stroke-opacity', '.45'); t.setAttribute('stroke-width', '4'); t.setAttribute('paint-order', 'stroke'); });
 
   const subBox = document.getElementById('sub'), subEl = document.getElementById('subtext'), fillEl = document.getElementById('fill');
@@ -67,7 +67,7 @@ const SPK = { T: ['Tudor', '#8FD0FF'], A: ['Agent', '#FFD166'], R: ['Researcher'
       const dn = prog(lt, .2, .9, easeOut), upv = prog(lt, 3.4, .7, easeIn);
       const y = lerp(-180, 70, dn) - upv * 260;
       tf(sign, 800, y, swing(lt, .7, 6, 4.5, 1.4)); op(sign, dn > 0 && upv < 1 ? 1 : 0);
-      tagN.textContent = 'CHAPTER ' + s.i; tagT.textContent = s.title; op(tag, prog(lt, 4, .8) * (last ? 1 : 1 - prog(lt, s.dur - .8, .5)) * .85);
+      if (tagT.textContent !== s.title) { tagN.textContent = 'CHAPTER ' + s.i; tagT.textContent = s.title; tagBg.setAttribute('width', f2(Math.max(150, s.title.length * 11.5 + 34))); } op(tag, prog(lt, 4, .8) * (last ? 1 : 1 - prog(lt, s.dur - .8, .5)) * .85);
     } else { op(sign, 0); op(tag, 0); }
     /* subtitrare */
     let html = '', so = 0;
@@ -95,7 +95,7 @@ const SPK = { T: ['Tudor', '#8FD0FF'], A: ['Agent', '#FFD166'], R: ['Researcher'
   let soundOn = false;
   const sndBtn = document.getElementById('snd');
   function setSound(on) {
-    soundOn = on; sndBtn.textContent = on ? '🔊 Sound on' : '🔇 Sound off'; sndBtn.classList.toggle('off', !on);
+    soundOn = on; sndBtn.innerHTML = on ? '🔊<span class="lbl"> Sound on</span>' : '🔇<span class="lbl"> Sound off</span>'; sndBtn.classList.toggle('off', !on);
     if (on && playing && T < TOTAL) { try { audio.currentTime = T; } catch (e) { } audio.play().catch(() => setSound(false)); } else audio.pause();
   }
 
