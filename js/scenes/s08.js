@@ -73,7 +73,7 @@ SCENE(8, { build(world, cue) {
   const camR = G(right);
   E('rect', { x: -600, y: -300, width: 3200, height: 1000, fill: '#5B4A6E' }, camR);
   E('rect', { x: -600, y: 700, width: 3200, height: 600, fill: '#5A3B2B' }, camR);
-  const bgO = G(camR); tf(bgO, -180, 0); const bgo = bgOffice(bgO, {});
+  const bgO = G(camR); tf(bgO, -180, 0); const bgo = bgOffice(bgO, { clockX: 1530 });
   const chair = G(camR); tf(chair, 1250, 0);
   E('rect', { x: -84, y: 470, width: 168, height: 210, rx: 40, fill: '#7E2F3A' }, chair);
   E('rect', { x: -66, y: 488, width: 132, height: 170, rx: 30, fill: '#953A47' }, chair);

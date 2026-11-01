@@ -138,9 +138,9 @@ SCENE(6, { build(world, cue) {
   const wr = G(bot.propR); wrench(wr, .7);
 
   /* ---------- bucla mică + ceas ---------- */
-  const LC = [990, 200], LR = 78;
+  const LC = [985, 236], LR = 74;
   const loop = G(cam); tf(loop, LC[0], LC[1]);
-  E('circle', { r: LR + 46, fill: '#1E1A2B', 'fill-opacity': .55 }, loop);
+  E('circle', { r: LR + 42, fill: '#1E1A2B', 'fill-opacity': .55 }, loop);
   E('circle', { r: LR, fill: 'none', stroke: '#6C7BA6', 'stroke-width': 4, 'stroke-dasharray': '3 10', 'stroke-linecap': 'round' }, loop);
   const ldot = E('circle', { r: 8, fill: '#fff' }, loop);
   const lnodes = [['THINK', C.gold, -90], ['ACT', C.blue, 30], ['LOOK', C.teal, 150]].map(([t, c, a]) => { const n = G(loop); const r = a * Math.PI / 180; tf(n, LR * Math.cos(r), LR * Math.sin(r));
@@ -148,7 +148,7 @@ SCENE(6, { build(world, cue) {
   const round = TX(loop, 0, 6, '', 17, '#FFE7A8', { a: 'middle', w: 800 });
   const LK = [[0, 0], [7.2, 0], [7.8, 1], [L(4), 1], [L(4) + .6, 2], [L(5) + .2, 2], [L(5) + .8, 3], [L(6), 3], [L(6) + .6, 4], [Le(6) - .3, 4], [Le(6) + .3, 5], [L(7) + .3, 5], [Le(7) - .1, 11], [L(8) + .3, 11], [L(8) + .8, 12], [L(8) + 1.6, 13], [L(8) + 3.4, 13], [L(8) + 3.9, 14], [L(9), 14], [cue.d, 14 + 24]];
   const clock = wallClock(cam, 64); tf(clock, LC[0], LC[1]);
-  const chip = G(cam); tf(chip, LC[0], 336);
+  const chip = G(cam); tf(chip, LC[0], 372);
   E('rect', { x: -190, y: -26, width: 380, height: 50, rx: 25, fill: '#14121F', 'fill-opacity': .85, stroke: C.gold, 'stroke-width': 2 }, chip);
   TX(chip, 0, 8, 'real life: minutes → hours', 22, '#FFE7A8', { a: 'middle', w: 800 });
   /* bulă de exclamare */
@@ -157,9 +157,9 @@ SCENE(6, { build(world, cue) {
   return (lt, at) => {
     bg.anim(at); cup.anim(at); pl.anim(at);
     camera(cam, lt, [[0, 800, 450, 1], [L(1) - .2, 800, 450, 1], [L(1) + 1.2, 500, 380, 1.32], [Le(2) - .2, 500, 380, 1.32], [L(3) + .6, 1030, 440, 1.1],
-      [L(4) - .2, 1030, 440, 1.1], [L(4) + .6, 1150, 470, 1.22], [L(5) - .2, 1150, 470, 1.22], [L(5) + .9, 820, 430, 1.0], [L(6) - .1, 820, 430, 1.0],
-      [L(6) + .9, 600, 400, 1.2], [L(6) + 2.8, 600, 400, 1.2], [Le(6), 1040, 440, 1.08], [L(7) - .1, 1040, 440, 1.08], [L(7) + .9, 920, 340, 1.22],
-      [Le(7), 920, 340, 1.22], [L(8) + .8, 1080, 470, 1.12], [Le(8), 1080, 470, 1.12], [L(9) + .9, 900, 420, 1.0], [cue.d, 920, 410, 1.06]]);
+      [L(4) - .2, 1030, 440, 1.1], [L(4) + .6, 1130, 480, 1.15], [L(5) - .2, 1130, 480, 1.15], [L(5) + .9, 820, 430, 1.0], [L(6) - .1, 820, 430, 1.0],
+      [L(6) + .9, 600, 400, 1.2], [L(6) + 2.8, 600, 400, 1.2], [Le(6), 1040, 440, 1.08], [L(7) - .1, 1040, 440, 1.08], [L(7) + .9, 920, 370, 1.2],
+      [Le(7), 920, 370, 1.2], [L(8) + .8, 1080, 470, 1.12], [Le(8), 1080, 470, 1.12], [L(9) + .9, 900, 420, 1.0], [cue.d, 920, 410, 1.06]]);
 
     /* --- stări ale mașinii --- */
     const run = (lt > L(3) + 1.0 && lt < L(4)) || (lt > Le(6) - 1.6 && lt < Le(6) - .3) || (lt > L(8) + 2.6 && lt < L(8) + 3.6) || (lt > L(9) && Math.sin(lt * 5) > -.3);
@@ -203,7 +203,7 @@ SCENE(6, { build(world, cue) {
     /* --- dosarul și fișierele --- */
     const fp = pop(lt, L(0) + .3, .6), fgo = prog(lt, L(0) + 3.2, .9);
     op(fold, fp * (1 - fgo)); tf(fold, lerp(470, 160, fgo), lerp(330, 196, fgo), 0, Math.max(.01, fp * lerp(1, .12, fgo)));
-    flyFiles.forEach((n, i) => { const t0 = L(0) + 1.2 + i * .45, p = prog(lt, t0, 1.0); const q = arcPos(p, [470, 330], [190, 240 + i * 30], 90);
+    flyFiles.forEach((n, i) => { const t0 = L(0) + 1.2 + i * .45, p = prog(lt, t0, 1.0); const q = arcPos(p, [470 + (i - 1) * 60, 250], [190, 240 + i * 30], 120);
       op(n, p > 0 && p < 1 ? 1 : 0); tf(n, q[0], q[1], (1 - p) * 30, lerp(1, .3, p)); });
     fileN.forEach(f => { op(f.n, prog(lt, f.at, .4)); f.t.setAttribute('fill', (f.t.textContent === 'Info.plist' && lt > L(8) + 1 && lt < L(8) + 3.6) ? '#FFD166' : '#C9D1E6'); });
     /* --- codul --- */
@@ -229,7 +229,7 @@ SCENE(6, { build(world, cue) {
       return { hL: a[0], hR: a[1], bendR: 30, face: 'focus', look: [-1, .4], headTilt: -4 }; };
     const leverHand = () => { const k = knob(la); return { hR: toL(k[0], k[1], x), hL: [-64, -96], look: [1, -.3] }; };
     let showMag = false, showWr = false;
-    if (lt < L(1)) Object.assign(st, { hL: toL(lerp(780, 600, prog(lt, L(0) + .3, .6)), 420 + Math.sin(at * 3) * 10, x), face: 'happy', look: [-1, -.3] });
+    if (lt < L(1)) Object.assign(st, { hL: [-118 + Math.sin(at * 3) * 6, -262 + Math.sin(at * 2.4) * 8], rotL: 20, hR: [64, -100], face: 'happy', look: [-1, -.4], headTilt: -5 });
     else if (lt < Le(2) + .3) Object.assign(st, typing());
     else if (lt < L(4)) Object.assign(st, leverHand(), { face: lt > L(3) + 1.6 ? 'happy' : 'focus' });
     else if (lt < L(5)) { const j = Math.max(0, 1 - (lt - L(4)) / .6); Object.assign(st, { face: 'surprise', hL: [-90, -270 + Math.sin(at * 9) * 8], hR: [90, -270 + Math.sin(at * 9 + 1) * 8], look: [1, -.2], bob: -40 * Math.sin(Math.PI * clamp((lt - L(4)) / .5)) }); }
