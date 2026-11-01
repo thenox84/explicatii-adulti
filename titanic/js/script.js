@@ -7,7 +7,7 @@ window.SCRIPT = {
   "N": {
    "voice": "bm_george",
    "lang": "en-gb",
-   "speed": 0.94,
+   "speed": 1.0,
    "name": ""
   },
   "C": {
@@ -78,8 +78,8 @@ window.SCRIPT = {
   {
    "title": "",
    "visual": "Southampton quay on a bright spring morning, 10 April 1912: bunting, a brass band, cheering crowds, cranes, seagulls and the colossal four-funnelled hull filling the frame. Running gags begin: the Owner tears PRACTICALLY off the PRACTICALLY UNSINKABLE banner and pockets it in his waistcoat; the Posh lady's swaying tower of twelve suitcases with Mitzi the dog on top; the Captain's teacup balanced perfectly still on the rail (it returns in scenes 4 and 6).",
-   "lead": 5.0,
-   "tail": 1.8,
+   "lead": 3.5,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -133,8 +133,8 @@ window.SCRIPT = {
   {
    "title": "Life on board",
    "visual": "A giant cake knife slices the ship into a cutaway cross-section like a layer cake, and the camera descends deck by deck like a lift: gilded first class on top, tidy second class beneath it, a rowdy third-class party on the lower decks, and roaring furnaces with sooty stokers at the bottom. Running gag: the lower you go, the hotter and livelier it gets, and Mitzi keeps slipping downstairs to the better party.",
-   "lead": 2.6,
-   "tail": 1.8,
+   "lead": 2.0,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -183,8 +183,8 @@ window.SCRIPT = {
   {
    "title": "Too busy to listen",
    "visual": "A queue at the purser's desk feeds a pneumatic tube up to the cramped radio room, its door labelled WIRELESS TELEGRAPH, crackling with blue sparks, where a snowdrift of fat pink passenger telegrams buries the frazzled young operator while thin icy-blue ice warnings get shoved to the back; outside, the ship ploughs on at speed through a darkening sea, and a small ship sits stopped in the ice far off. Running gag: the ignored ice warnings.",
-   "lead": 2.6,
-   "tail": 1.8,
+   "lead": 2.0,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -237,8 +237,8 @@ window.SCRIPT = {
   {
    "title": "Iceberg, right ahead!",
    "visual": "The crow's nest high on the foremast under a moonless sky blazing with stars, above a black sea so flat it mirrors every one of them; the bridge with its telephone and wheel; the smug Iceberg, a small peak with eyebrows above water and a vast grinning bulk below. Running gags: the missing binoculars and the polite 'Thank you.'",
-   "lead": 2.6,
-   "tail": 1.8,
+   "lead": 2.0,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -293,8 +293,8 @@ window.SCRIPT = {
   {
    "title": "A little bump",
    "visual": "The first-class smoking room, where card players barely look up, and the icy forward well deck, where third-class passengers play with the fallen ice, just before midnight; then below, where the Shipbuilder wades through ankle-deep water and draws the watertight compartments as an ice-cube tray on his blueprint. Running gags: the unbothered passengers, the sums that will not change, the Captain's teacup, and the crumpled word PRACTICALLY returning.",
-   "lead": 2.6,
-   "tail": 1.8,
+   "lead": 2.0,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -347,8 +347,8 @@ window.SCRIPT = {
   {
    "title": "Lifeboats, anyone?",
    "visual": "The cold boat deck at night under a huge blackboard of lifeboat maths; sixteen white wooden lifeboats hang from their davits and four flat, canvas-sided collapsible boats lie folded on the deck, while officers coax reluctant passengers in evening dress; white rockets burst overhead, and an officer flashes a Morse lamp at a small ship on the horizon whose lights are clearly on, with no reply. Running gags: the sum that refuses to balance, the Owner's gold star, and the half-empty boats (empty benches only, never luggage).",
-   "lead": 2.6,
-   "tail": 1.8,
+   "lead": 2.0,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -407,8 +407,8 @@ window.SCRIPT = {
   {
    "title": "The band plays on",
    "visual": "The grand saloon tilting steeper and steeper as armchairs, a potted palm and a grand piano slide out in a stately conga line; then the open, sloping boat deck under the stars, where the band plays on with calm dignity as the last boats are lowered; finally a wide, quiet shot from the lifeboats as the lit ship breaks in two and slips beneath the starry, glassy sea. No deaths are depicted: the lifeboat shot shows only the boats' occupants (the Posh lady with Mitzi, the Owner, the Lookout and the Wireless operator), each one a survivor; the Captain and the band are not shown again after their last moments aboard, with no shot of their fate, and no people are visible on the distant ship. No slapstick on the band. Running gags pay off: the teacup, the suitcases and the word PRACTICALLY.",
-   "lead": 2.6,
-   "tail": 1.8,
+   "lead": 2.0,
+   "tail": 1.6,
    "lines": [
     {
      "who": "N",
@@ -460,8 +460,8 @@ window.SCRIPT = {
   {
    "title": "Rescue, and the rules",
    "visual": "A dark sea before dawn as the rescue ship weaves between icebergs with every lamp lit and extra lookouts posted; then a cold pink dawn over a sea dotted with ice and lifeboats as blankets and cocoa are passed up; then a wood-panelled committee room where an enormous rulebook is stamped page by page, and a patrol ship shadows the sulking Iceberg; finally, for the sincere coda, a calm sea at sunrise with no gags at all. Running gag: every new rule answers a blunder from earlier.",
-   "lead": 2.6,
-   "tail": 8.0,
+   "lead": 2.0,
+   "tail": 4.5,
    "lines": [
     {
      "who": "N",
