@@ -51,7 +51,7 @@ const SPK = { T: ['Tudor', '#8FD0FF'], A: ['Agent', '#FFD166'], R: ['Researcher'
   const tag = G(overlay); const tagN = TX(tag, 40, 52, '', 15, '#FFE7B8', { w: 700, ls: 3 }); const tagT = TX(tag, 40, 78, '', 22, '#FFF6E5', { w: 700 });
   tag.setAttribute('style', 'paint-order:stroke');[tagN, tagT].forEach(t => { t.setAttribute('stroke', '#000'); t.setAttribute('stroke-opacity', '.45'); t.setAttribute('stroke-width', '4'); t.setAttribute('paint-order', 'stroke'); });
 
-  const subBox = document.getElementById('sub'), subEl = document.getElementById('subtext');
+  const subBox = document.getElementById('sub'), subEl = document.getElementById('subtext'), fillEl = document.getElementById('fill');
   let active = null, lastSub = null;
   function render(T, A) {
     const tt = Math.min(T, TOTAL - .001);
@@ -131,8 +131,7 @@ const SPK = { T: ['Tudor', '#8FD0FF'], A: ['Agent', '#FFD166'], R: ['Researcher'
   function seek(t) { T = clamp(t, 0, TOTAL); if (soundOn) { try { audio.currentTime = T; } catch (e) { } } render(T, A); }
 
   /* ---------- controale ---------- */
-  const bar = document.getElementById('bar'), track = document.getElementById('track'), fillEl0 = document.getElementById('fill'), tip = document.getElementById('tip');
-  var fillEl = fillEl0; window.fillEl = fillEl0;
+  const bar = document.getElementById('bar'), track = document.getElementById('track'), tip = document.getElementById('tip');
   SC.forEach(s => { if (!s.i) return; const m = document.createElement('div'); m.className = 'mk'; m.style.left = (100 * s.start / TOTAL) + '%'; track.appendChild(m); });
   bar.addEventListener('click', e => { e.stopPropagation(); const r = track.getBoundingClientRect(); const f = clamp((e.clientX - r.left) / r.width); let t = f * TOTAL;
     for (const s of SC) if (Math.abs(s.start / TOTAL - f) < .012) { t = s.start; break; } if (!started) begin(false); seek(t); });
