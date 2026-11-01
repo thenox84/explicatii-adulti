@@ -600,7 +600,7 @@ function shipCutaway(parent, o = {}) {
     E('path', { d: `M${fx - w + dx},${top} H${fx + w + dx}`, stroke: '#3A363C', 'stroke-width': 4 }, D);
     E('path', { d: `M${fx + w + 3},${base} L${fx + w + 3 + dx * .8},${top + 30}`, stroke: '#C9A045', 'stroke-width': 3 }, D);
     E('rect', { x: fx - w - 8, y: base - 10, width: w * 2 + 16, height: 10, rx: 3, fill: '#CBBFA6' }, D);
-    if (i > 0) { const sm = itrSmoke(D, fx + dx, top - 4, { n: 7, seed: i * .31, col: mode === 'day' ? '#7E7A82' : mode === 'dusk' ? '#6A6278' : '#4A4552', a: .62, dx: -360, dy: -34, grow: 2.4, speed: .1 }); smokes.push(sm); A.push(sm.anim); } });
+    if (i > 0) { const sm = itrSmoke(D, fx + dx, top - 4, { n: 7, seed: i * .31, col: mode === 'day' ? '#7E7A82' : mode === 'dusk' ? '#6A6278' : '#4A4552', a: .5, dx: -360, dy: -30, grow: 2.2, speed: .1 }); smokes.push(sm); A.push(sm.anim); } });
   /* deckhouse */
   E('rect', { x: 210, y: 152, width: 1230, height: 63, fill: '#EFE9DC' }, D);
   E('rect', { x: 206, y: 148, width: 1238, height: 6, rx: 2, fill: '#D8CFBC' }, D);
@@ -638,8 +638,8 @@ function shipCutaway(parent, o = {}) {
 
   /* ---------- labels + focus overlays ---------- */
   const LY = { boat: [0, -300, 1600, 225], first: [36, 225, 1574, 381], second: [36, 381, 1574, 511], third: [36, 511, 1574, 641], boiler: [36, 641, 1574, 880] };
-  const dimG = G(g); const dims = {};
-  Object.keys(LY).forEach(k => { const [x0, y0, x1, y1] = LY[k]; dims[k] = E('rect', { x: k === 'boat' ? -300 : x0 - 12, y: y0, width: k === 'boat' ? 2200 : x1 - x0 + 24, height: y1 - y0, fill: '#0B0D18' }, dimG); op(dims[k], 0); });
+  const dimG = G(g), dimI = G(dimG, { 'clip-path': itrClip(H) }); const dims = {};
+  Object.keys(LY).forEach(k => { const [x0, y0, x1, y1] = LY[k]; dims[k] = E('rect', { x: k === 'boat' ? -300 : x0 - 12, y: y0, width: k === 'boat' ? 2200 : x1 - x0 + 24, height: y1 - y0, fill: '#0B0D18' }, k === 'boat' ? dimG : dimI); op(dims[k], 0); });
   const SG = G(g); if (o.labels === false) op(SG, 0);
   const signs = {
     first: itrPlaque(SG, 195, 238, 'First class', { chain: 12 }),
