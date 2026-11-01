@@ -7,7 +7,8 @@ cronologie și scrie:
   js/timing.js         – începutul/sfârșitul fiecărei replici și al fiecărei scene
 
 Folosire:
-  python make_narration.py <model.onnx> <voices.bin> <cache_dir>
+  python make_narration.py <model.onnx> <voices.bin> <cache_dir> [film_root]
+  (film_root implicit = rădăcina depozitului; pentru Titanic: titanic)
 """
 import hashlib, json, os, re, subprocess, sys
 import numpy as np
@@ -75,4 +76,6 @@ def main(model, voices, cache):
         print(i, s['start'], s['dur'], len(s['lines']))
 
 if __name__ == '__main__':
+    if len(sys.argv) > 4:
+        ROOT = os.path.abspath(sys.argv[4])
     main(*sys.argv[1:4])
