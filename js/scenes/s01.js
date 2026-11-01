@@ -241,7 +241,7 @@ SCENE(1, { build(world, cue) {
     TX(g, bw / 2, 37, w, 26, C.ink, { a: 'middle', w: 800 }); const o = { g, bw, x: ax, t: ansT[k], picked: k === 2 || k === 5 }; ax += bw + 10; return o; });
   /* fluxul rapid */
   const stream = []; for (let j = 0; j < 26; j++) { const g = G(items); const bw = 30 + hash(j + 5) * 46; E('rect', { x: 0, y: 0, width: bw, height: 34, rx: 7, fill: tokCols[j % 10] }, g); stream.push({ g, bw, s: 46.2 + j * .12 }); }
-  const page = G(items); paper(page, 250, 170, { label: 'Answer', lines: 6, size: 20 });
+  const page = G(items); paper(page, 210, 130, { label: 'Answer', lines: 5, size: 18 });
   /* gheara */
   const claw = G(cam);
   const cable = E('path', { stroke: '#2B3047', 'stroke-width': 4 }, claw);
@@ -319,7 +319,7 @@ SCENE(1, { build(world, cue) {
     });
     show(tagLM, lt, L(1) + 2.6, L(2) - .4, { dy: 10 });
     /* ---- tabla ---- */
-    op(board, prog(lt, L(2) - 1.5, .8) * (1 - win(lt, L(7) - .6, L(8) - .1, .4, .4)));
+    op(board, prog(lt, L(2) - .5, .6) * (1 - win(lt, L(7) - .6, L(8) - .1, .4, .4)));
     op(cB, win(lt, L(2), L(3) - .6, .5, .4));
     optB.forEach((o, i) => { op(o.g, prog(lt, L(2) + 1.2 + i * .35, .4)); o.bar.setAttribute('width', f2(2 * o.p * prog(lt, L(2) + 1.4 + i * .35, 1.2))); });
     const bp = prog(lt, L(2) + 3.4, .7); op(bday, bp); tf(bday, 0, (1 - bp) * 60);
@@ -374,7 +374,7 @@ SCENE(1, { build(world, cue) {
       else { const d = prog(lt, a.t, .9, easeOut); tf(a.g, lerp(940, a.x, d) - scrollOut, 548 - Math.abs(Math.sin(d * Math.PI * 2)) * 8 * (1 - d)); }
     });
     stream.forEach((s, j) => { const x = 930 - (lt - s.s) * 820; op(s.g, lt > s.s && x > 60 ? 1 : 0); tf(s.g, x, 570 - (j % 3) * 2); });
-    const pg = prog(lt, Le(6) - 1.6, 1, easeOut); op(page, pg > 0 ? 1 - prog(lt, L(7) - 1, .4) : 0); tf(page, lerp(1060, 560, pg), 519);
+    const pg = prog(lt, Le(6) - 1.6, 1, easeOut); op(page, pg > 0 ? 1 - prog(lt, L(7) - 1, .4) : 0); tf(page, lerp(1060, 770, pg), 539);
     /* gheara */
     const sAct = STEPS.find(s => lt > s.t + .6 && lt < s.t + 4.2);
     op(claw, win(lt, L(5) + .8, L(6) + .4, .4, .4));
@@ -387,8 +387,8 @@ SCENE(1, { build(world, cue) {
     const wv = pop(lt, L(7) + .5, .6) * (1 - prog(lt, cue.d - .6, .4));
     op(wrong, wv > 0 ? 1 : 0); tf(wrong, 790, 150, 0, Math.max(.01, wv));
     op(rib, lt < L(8) + 1.8 ? 1 : 0); tf(rib, -200, -78, Math.sin(at * 3) * 6, 1 + .06 * Math.sin(at * 5));
-    const qs = pop(lt, 56.9, .35); op(qmark, qs * (1 - prog(lt, L(8) + 1.9, .4))); tf(qmark, 120, 4, -12, 1.6 - .6 * qs);
-    const sY = keyed(lt, [[56.2, -260], [56.88, 70], [57.25, 70], [57.9, -260]]); op(stamp, lt > 56.2 && lt < 57.9 ? 1 : 0); tf(stamp, 905, sY);
+    const qs = pop(lt, 56.9, .35); op(qmark, qs * (1 - prog(lt, L(8) + 1.9, .4))); tf(qmark, 222, -58, -12, 1.6 - .6 * qs);
+    const sY = keyed(lt, [[56.2, -260], [56.88, 94], [57.25, 94], [57.9, -260]]); op(stamp, lt > 56.2 && lt < 57.9 ? 1 : 0); tf(stamp, 1012, sY);
     const fx = prog(lt, L(8) + 1.9, .5); op(fix, fx); op(okB, pop(lt, L(8) + 2.2, .5));
     wT1.setAttribute('fill', fx > .5 ? '#8A8478' : C.ink);
     /* robotul */
