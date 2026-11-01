@@ -8,7 +8,8 @@
 
 /* ---------- private helpers ---------- */
 const wldTints = { day: null, dusk: ['#5E3A6E', .22], night: ['#0A1230', .6], dawn: ['#C58A9C', .14] };
-function wldTint(m) { const t = wldTints[m || 'day']; return t ? (c => mix(c, t[0], t[1])) : (c => c); }
+/* mood tint; amt overrides the default strength (e.g. the hero ship stays brighter at night) */
+function wldTint(m, amt) { const t = wldTints[m || 'day']; if (!t) return c => c; const a = amt != null ? amt : t[1]; return c => mix(c, t[0], a); }
 function wldPl(pts, close) {
   let d = ''; for (let i = 0; i < pts.length; i++) d += (i ? ' L' : 'M') + f2(pts[i][0]) + ',' + f2(pts[i][1]);
   return close ? d + ' Z' : d;
@@ -55,6 +56,40 @@ function wldPuff(p, c1, c2, c3, r = 13) {
   E('circle', { cx: -r * .38, cy: -r * .45, r: r * .55, fill: c2 }, g);
   return g;
 }
+/* billowing coal-smoke plume that stays attached to a funnel mouth.
+   pl = wldPlume(parent, {n, r, w (mouth half-width), cols:[main,hi,shadow], cols2, seed, rate, rise, drift})
+   pl.step(at, x, y, amount 0..1, wind)  — (x,y) = mouth centre in parent coords */
+function wldPlume(p, o) {
+  const n = o.n || 16, r = o.r || 14, w = o.w || 16, seed = o.seed || 1;
+  const rate = o.rate || .26, rise = o.rise || 150, drift = o.drift != null ? o.drift : 260;
+  const c1 = o.cols, c2 = o.cols2 || o.cols;
+  const g = G(p), ps = [];
+  for (let i = 0; i < n; i++) { const c = hash(seed * 3.1 + i * 1.7) > .45 ? c1 : c2; ps.push({ g: wldPuff(g, c[0], c[1], c[2], r), i }); }
+  /* anchored root: three puffs that hug the mouth so the column never floats */
+  const roots = [[-.42, -.1, .8], [.34, -.2, .76], [-.08, -1.15, .98]].map(([u, v, k]) => ({ g: wldPuff(g, c1[0], c1[1], c1[2], r), u, v, k }));
+  return {
+    g,
+    step(at, x, y, amt, wind = 1) {
+      if (amt <= .003) { op(g, 0); return; }
+      op(g, 1);
+      ps.forEach(pf => {
+        const uu = at * rate + pf.i / n + seed * .37, cyc = Math.floor(uu), ph = uu - cyc;
+        const h1 = hash(cyc * 7.13 + pf.i * 3.7 + seed), h2 = hash(cyc * 3.31 + pf.i * 9.1 + seed * 2), h3 = hash(cyc * 5.77 + pf.i * 1.9 + seed * 3), h4 = hash(cyc * 2.9 + pf.i * 4.3);
+        const R = rise * (.78 + .44 * h1);
+        const dy = -R * (1 - Math.exp(-1.6 * ph)) / (1 - Math.exp(-1.6));
+        const lat = (h2 - .5) * (w * .9 + 46 * ph) + Math.sin(at * 1.1 + pf.i * 2.3 + seed) * 6 * ph;
+        const dx = -drift * wind * Math.pow(ph, 1.3) * (.85 + .3 * h3) + lat;
+        tf(pf.g, x + dx, y + dy, h4 * 360 + ph * 50, (.75 + ph * 1.5) * (.82 + .36 * h3));
+        op(pf.g, amt * Math.min(1, ph / .035) * Math.pow(1 - ph, 1.25) * .9);
+      });
+      roots.forEach((rt, k) => {
+        const wb = Math.sin(at * 2.3 + k * 2.1 + seed);
+        tf(rt.g, x + rt.u * w - (k === 2 ? 10 * wind : 0) + wb * 1.5, y + rt.v * r - 3, at * 20 + k * 120, rt.k * (1 + .06 * wb));
+        op(rt.g, amt * .88);
+      });
+    }
+  };
+}
 /* wavy foam line between x0 and x1 at y≈0 */
 function wldFoam(x0, x1, at, amp, ph = 0, yb = 2.5, step = 7) {
   if (!(x1 > x0)) return 'M0,0';
@@ -66,12 +101,15 @@ function wldFoam(x0, x1, at, amp, ph = 0, yb = 2.5, step = 7) {
 /* =====================================================================
    1) TITANIC — side view, bow to the right, origin = waterline centre.
    ~1412 px long at s=1. Two halves (bow / stern) for the break-up.
-   Titanic(parent, {mood:'day'|'dusk'|'night'|'dawn'})
-   .set({x,y,s,tilt,split,sink,lights,smoke,wake,boats,wind}) · .anim(at)
+   Titanic(parent, {mood, calm, mirror, tint, nameScale})
+   .set({x,y,s,sx,flip,tilt,split,sink,lights,smoke,wake,boats,wind,calm}) · .anim(at)
    ===================================================================== */
 function Titanic(parent, o = {}) {
-  const K = wldTint(o.mood), M = wldMx, mood = o.mood || 'day';
+  const M = wldMx, mood = o.mood || 'day', night = mood === 'night';
+  const K = wldTint(mood, o.tint != null ? o.tint : night ? .42 : null);
+  const KF = wldTint(mood, o.tint != null ? o.tint : night ? .3 : null);    /* funnels keep their buff at night */
   const XB = -110, KL = 60, NL = 6;
+  const NBX = [362, 320, 278, 236, -262, -304, -346, -388], DAV = 12.5;
   const S = x => -90 - 26 * Math.pow(Math.max(0, (x + 50) / 750), 2) - 14 * Math.pow(Math.max(0, (-x - 50) / 650), 2);
   const along = (xa, xb, off = 0, step = 16) => { const a = [], n = Math.max(1, Math.ceil((xb - xa) / step)); for (let i = 0; i <= n; i++) { const x = lerp(xa, xb, i / n); a.push([x, S(x) + off]); } return a; };
   const band = (xa, xb, o1, o2) => wldPl(along(xa, xb, o1).concat(along(xa, xb, o2).reverse()), true);
@@ -83,17 +121,38 @@ function Titanic(parent, o = {}) {
   const CN = [mastX(MF, -292), -292];
   const foamC = mood === 'night' ? '#8E9CC6' : mood === 'dawn' ? '#FFF1EA' : mood === 'dusk' ? '#FFE3D6' : '#FFFFFF';
   const litA = '#FFE3A0', litB = '#FFC45E';
+  const NS2 = o.nameScale || 1, nameX = 604 - (NS2 - 1) * 50, nameY = S(nameX) + 30 + (NS2 - 1) * 6;
 
   const root = G(parent);
   const reflG = G(root), wakeG = G(root), smokeG = G(root);
   const clipG = G(root, { 'clip-path': clipRect(-4000, -6000, 8000, 6001) });
   const sternG = G(clipG), bowG = G(clipG);
   const foamG = G(root);
-  const LG = [], glowGs = [], warmGs = [], breakGs = [], navGs = [], boats = [], falls = [], EM = [];
-  let flagEl = null, f4 = null; const aerials = [];
+  const LG = [], warmGs = [], breakGs = [], navGs = [], boats = [], falls = [], EM = [], names = [];
+  let flagEl = null, flagG = null, f4 = null; const aerials = [];
 
-  function lightSet(P, dark) { const a = []; for (let k = 0; k < NL; k++) { const g = G(P, { fill: dark }); const l = { g, dark, lit: mix(litA, litB, k / (NL - 1)), k }; LG.push(l); a.push(l); } return a; }
-  const pickL = (set, i, j) => set[Math.floor(hash(i * 3.31 + j * 17.9) * NL)].g;
+  /* light groups: NL window groups per set, each with its own soft glow (two merged halo paths)
+     so a group that flickers off takes its glow with it */
+  function lightSet(P, dark) {
+    const a = [], glowP = G(P);
+    for (let k = 0; k < NL; k++) {
+      const lit = mix(litA, litB, k / (NL - 1));
+      const gw = G(glowP, { opacity: 0 });
+      const l = { g: null, glow: gw, dark, lit, k, d1: '', d2: '' };
+      l.h1 = E('path', { fill: lit, 'fill-opacity': .2 }, gw); l.h2 = E('path', { fill: lit, 'fill-opacity': .1 }, gw);
+      LG.push(l); a.push(l);
+    }
+    a.forEach(l => { l.g = G(P, { fill: dark }); });
+    return a;
+  }
+  const halo = (cx, cy, rx, ry) => `M${f2(cx - rx)},${f2(cy)}a${f2(rx)},${f2(ry)} 0 1,0 ${f2(2 * rx)},0a${f2(rx)},${f2(ry)} 0 1,0 ${f2(-2 * rx)},0`;
+  /* add a window: kind 'r' (rect x,y,w,h) or 'c' (circle x,y,r) */
+  function addW(set, i, j, kind, x, y, w, h) {
+    const l = set[Math.floor(hash(i * 3.31 + j * 17.9) * NL)];
+    if (kind === 'c') { E('circle', { cx: f2(x), cy: f2(y), r: w }, l.g); l.d1 += halo(x, y, w + 2, w + 2); l.d2 += halo(x, y, w + 4.6, w + 4.2); }
+    else { E('rect', { x: f2(x), y: f2(y), width: w, height: f2(h), rx: Math.min(1, w * .2) }, l.g); l.d1 += halo(x + w / 2, y + h / 2, w / 2 + 1.8, h / 2 + 1.8); l.d2 += halo(x + w / 2, y + h / 2, w / 2 + 4.2, h / 2 + 3.6); }
+  }
+  const sealLights = () => LG.forEach(l => { l.h1.setAttribute('d', l.d1 || 'M0,0'); l.h2.setAttribute('d', l.d2 || 'M0,0'); l.d1 = l.d2 = ''; });
 
   function deckBoat(P, bx, far, idx) {
     const dk = S(bx) - 41, y = dk - (far ? 5 : 2.5);
@@ -139,24 +198,29 @@ function Titanic(parent, o = {}) {
       if (!inR(fx)) return;
       const b = fBase(fx) + 2, t = b - FH - 2, sh = y => FR * (b - y) / (b - t);
       const g = G(fG);
-      if (fi === 3) { f4 = g; f4.base = [fx, b]; }
+      if (fi === 3) { f4 = g; f4.base = [fx, b]; f4.mid = [fx + FR * .5, b - FH * .5]; }
       E('path', { d: `M${f2(fx + sh(t + 54) - FW)},${f2(t + 54)} L${fx - 70},${f2(b - 2)} M${f2(fx + sh(t + 54) - FW)},${f2(t + 54)} L${fx - 40},${f2(b - 2)} M${f2(fx + sh(t + 54) + FW)},${f2(t + 54)} L${fx + 66},${f2(b - 2)} M${f2(fx + sh(t + 54) + FW)},${f2(t + 54)} L${fx + 38},${f2(b - 2)}`,
         stroke: K('#5E5850'), 'stroke-width': .9, 'stroke-opacity': .85 }, g);
       const quad = (l, r, y0, y1) => `M${f2(fx + l + sh(y0))},${f2(y0)} L${f2(fx + r + sh(y0))},${f2(y0)} L${f2(fx + r + sh(y1))},${f2(y1)} L${f2(fx + l + sh(y1))},${f2(y1)} Z`;
-      E('path', { d: quad(-FW, FW, b, t), fill: K('#D49B43') }, g);
-      E('path', { d: quad(-FW, -FW + 10, b, t), fill: K('#E7B964') }, g);
-      E('path', { d: quad(-FW + 3, -FW + 6, b, t), fill: K('#F2CD82') }, g);
-      E('path', { d: quad(FW - 13, FW, b, t), fill: K('#B27C31') }, g);
+      E('path', { d: quad(-FW, FW, b, t), fill: KF('#D49B43') }, g);
+      E('path', { d: quad(-FW, -FW + 10, b, t), fill: KF('#E7B964') }, g);
+      E('path', { d: quad(-FW + 3, -FW + 6, b, t), fill: KF('#F2CD82') }, g);
+      E('path', { d: quad(FW - 13, FW, b, t), fill: KF('#B27C31') }, g);
       E('path', { d: quad(-FW, FW, t + 36, t), fill: K('#1C1C21') }, g);
       E('path', { d: quad(FW - 12, FW, t + 36, t), fill: K('#0F0F13') }, g);
       E('path', { d: quad(-FW + 3, -FW + 7, t + 36, t + 3), fill: K('#3A3A42') }, g);
       E('path', { d: quad(-FW - 1.6, FW + 1.6, t + 4, t - 1.5), fill: K('#26262C') }, g);
-      E('path', { d: quad(-FW, FW, t + 38.5, t + 36), fill: K('#8E6A2E') }, g);
+      E('path', { d: quad(-FW, FW, t + 38.5, t + 36), fill: KF('#8E6A2E') }, g);
+      /* night: deck lights wash the lower funnel warm, plus a lit rim on the forward edge */
+      const wf = G(g, { opacity: 0 }); warmGs.push(wf);
+      E('path', { d: quad(-FW, FW, b, t + 40), fill: lgrad([[0, '#FFC27A', 0], [.55, '#FFB45C', .1], [1, '#FFB45C', .34]]) }, wf);
+      E('path', { d: quad(FW - 4, FW - 1.5, b, t + 40), fill: '#FFD49A', 'fill-opacity': .45 }, wf);
+      E('path', { d: quad(-FW + 2, -FW + 4.5, b, t + 40), fill: '#FFE2B0', 'fill-opacity': .25 }, wf);
       /* steam pipes + whistle on the forward face */
-      E('path', { d: `M${f2(fx + FW + 2.4 + sh(b))},${f2(b)} L${f2(fx + FW + 2.4 + sh(t + 16))},${f2(t + 16)} M${f2(fx + FW + 6 + sh(b))},${f2(b)} L${f2(fx + FW + 6 + sh(t + 30))},${f2(t + 30)}`, stroke: K('#C49752'), 'stroke-width': 2.3, fill: 'none' }, g);
-      if (fi < 3) E('rect', { x: f2(fx + FW + .5 + sh(t + 44)), y: f2(t + 40), width: 7.5, height: 6, rx: 1.5, fill: K('#D8B060') }, g);
-      E('path', { d: quad(-FW - 3, FW + 3, b + 1, b - 6), fill: K('#9A773E') }, g);
-      if (fi < 3) EM[fi] = { p: [fx + FR, t - 3], bow: fx > XB };
+      E('path', { d: `M${f2(fx + FW + 2.4 + sh(b))},${f2(b)} L${f2(fx + FW + 2.4 + sh(t + 16))},${f2(t + 16)} M${f2(fx + FW + 6 + sh(b))},${f2(b)} L${f2(fx + FW + 6 + sh(t + 30))},${f2(t + 30)}`, stroke: KF('#C49752'), 'stroke-width': 2.3, fill: 'none' }, g);
+      if (fi < 3) E('rect', { x: f2(fx + FW + .5 + sh(t + 44)), y: f2(t + 40), width: 7.5, height: 6, rx: 1.5, fill: KF('#D8B060') }, g);
+      E('path', { d: quad(-FW - 3, FW + 3, b + 1, b - 6), fill: KF('#9A773E') }, g);
+      if (fi < 3) EM[fi] = { p: [fx + FR, t + 1], bow: fx > XB };
     });
     /* ---------- masts ---------- */
     const mast = (m) => {
@@ -229,10 +293,10 @@ function Titanic(parent, o = {}) {
     /* windows (B deck) and promenade openings (A deck) */
     const wl = lightSet(sup, K('#596072'));
     [a0, a1] = cl(-565, 446);
-    for (let x = -565, i = 0; x < 446; x += 9.6, i++) { if (!inR(x) || hash(i * 2.17 + 3) < .2) continue; E('rect', { x: f2(x), y: f2(S(x) - 14), width: 4.6, height: 6, rx: .8 }, pickL(wl, i, 1)); }
-    for (let x = -514, i = 0; x < 424; x += 12.6, i++) { if (!inR(x)) continue; E('rect', { x: f2(x), y: f2(S(x) - 37), width: 8.4, height: 10.5, rx: 1 }, pickL(wl, i, 2)); }
-    houses.forEach(([h0, h1, hh], j) => { if (!inR(h0)) return; for (let x = h0 + 5, i = 0; x < h1 - 8; x += 9, i++) E('rect', { x: f2(x), y: f2(S(x) - 41 - hh * .72), width: 4.2, height: f2(hh * .42), rx: .6 }, pickL(wl, i, 5 + j)); });
-    if (bow) for (let x = 406, i = 0; x < 438; x += 6, i++) E('rect', { x, y: f2(S(x) - 62), width: 3.6, height: 4.2 }, pickL(wl, i, 9));
+    for (let x = -565, i = 0; x < 446; x += 9.6, i++) { if (!inR(x) || hash(i * 2.17 + 3) < .2) continue; addW(wl, i, 1, 'r', x, S(x) - 14, 4.6, 6); }
+    for (let x = -514, i = 0; x < 424; x += 12.6, i++) { if (!inR(x)) continue; addW(wl, i, 2, 'r', x, S(x) - 37, 8.4, 10.5); }
+    houses.forEach(([h0, h1, hh], j) => { if (!inR(h0)) return; for (let x = h0 + 5, i = 0; x < h1 - 8; x += 9, i++) addW(wl, i, 5 + j, 'r', x, S(x) - 41 - hh * .72, 4.2, hh * .42); });
+    if (bow) for (let x = 406, i = 0; x < 438; x += 6, i++) addW(wl, i, 9, 'r', x, S(x) - 62, 3.6, 4.2);
     /* warm light spill on the superstructure (night) */
     const warm = G(P, { fill: '#FFB45C', opacity: 0 }); warmGs.push(warm);
     [a0, a1] = cl(-565, 450); if (a1 > a0) E('path', { d: band(a0, a1, -2, -41), 'fill-opacity': .16 }, warm);
@@ -271,8 +335,9 @@ function Titanic(parent, o = {}) {
     if (bow) {
       E('rect', { x: 600, y: -130, width: 110, height: 126, fill: lgrad([[0, '#FFFFFF', 0], [.75, '#FFFFFF', .08], [1, '#FFFFFF', 0]], 0, 0, 1, 0) }, hc);
     } else {
-      E('ellipse', { cx: -690, cy: -16, rx: 34, ry: 8, fill: '#000', 'fill-opacity': .35 }, hc);
-      E('rect', { x: -730, y: -130, width: 70, height: 126, fill: lgrad([[0, '#FFFFFF', .06], [1, '#FFFFFF', 0]], 0, 0, 1, 0) }, hc);
+      /* rounded stern: soft highlight on the counter, gentle shadow tucked under the overhang */
+      E('rect', { x: -730, y: -130, width: 70, height: 126, fill: lgrad([[0, '#FFFFFF', .07], [1, '#FFFFFF', 0]], 0, 0, 1, 0) }, hc);
+      E('path', { d: 'M-720,-40 Q-700,-14 -660,-10 L-640,-10 L-640,-4 L-720,-4 Z', fill: lgrad([[0, '#000000', 0], [1, '#000000', .22]]) }, hc);
     }
     E('path', { d: line(Math.max(xa, -700), Math.min(xb, 702), 2.6), stroke: K('#D6B458'), 'stroke-width': 2.2, fill: 'none' }, hull);
     if (!bow) {
@@ -288,38 +353,39 @@ function Titanic(parent, o = {}) {
     rows.forEach(([off, r0, r1, skip], ri) => {
       for (let x = r0, i = 0; x <= r1; x += 11.5, i++) {
         if (!inR(x) || (skip && x > skip[0] && x < skip[1]) || hash(i * 7.13 + ri * 31.7) < .16) continue;
-        E('circle', { cx: f2(x), cy: f2(S(x) + off), r: 2.3 }, pickL(hl, i, ri));
+        if (bow && ri < 2 && Math.abs(x - nameX) < 50 * NS2 + 6 && Math.abs(S(x) + off - nameY) < 11 * NS2) continue;   /* keep the name clear */
+        addW(hl, i, ri, 'c', x, S(x) + off, 2.3);
       }
     });
-    /* night glow strips */
-    const glow = G(P, { fill: 'none', stroke: '#FFC864', 'stroke-linecap': 'round', opacity: 0 }); glowGs.push(glow);
-    rows.forEach(([off, r0, r1]) => { const [g0, g1] = cl(r0, r1); if (g1 > g0) { const d = line(g0, g1, off); E('path', { d, 'stroke-width': 9, 'stroke-opacity': .13 }, glow); E('path', { d, 'stroke-width': 3.4, 'stroke-opacity': .2 }, glow); } });
-    [[-11, -565, 446], [-32, -514, 424]].forEach(([off, r0, r1]) => { const [g0, g1] = cl(r0, r1); if (g1 > g0) E('path', { d: line(g0, g1, off), 'stroke-width': 12, 'stroke-opacity': .12 }, glow); });
-    /* name, anchor */
+    /* name, anchor (counter-flipped in set() so they always read left-to-right) */
     if (bow) {
-      TX(P, 610, f2(S(610) + 25), 'TITANIC', 12.5, K('#EBD38D'), { a: 'middle', w: 800, ls: 2.6 });
-      const an = G(P); tf(an, 673, -73);
+      names.push({ el: TX(P, f2(nameX), f2(nameY), 'TITANIC', f2(16 * NS2), K('#EBD38D'), { a: 'middle', w: 800, ls: f2(2.4 * NS2) }), x: nameX });
+      const an = G(P); tf(an, 676, -66);
       E('circle', { cx: 0, cy: -9, r: 5, fill: '#0E0F14' }, an);
       E('path', { d: 'M-1.7,-9 L1.7,-9 L1.4,8 L-1.4,8 Z M-7.5,3 Q0,13 7.5,3 L5.4,2 Q0,8 -5.4,2 Z', fill: K('#565A66') }, an);
     } else {
-      TX(P, -650, -86, 'TITANIC', 7.5, K('#EBD38D'), { a: 'middle', w: 800, ls: 1.2 });
-      TX(P, -650, -77, 'LIVERPOOL', 5.5, K('#C9B477'), { a: 'middle', w: 700, ls: 1 });
+      names.push({ el: TX(P, -650, -86, 'TITANIC', 7.5, K('#EBD38D'), { a: 'middle', w: 800, ls: 1.2 }), x: -650 });
+      names.push({ el: TX(P, -650, -77, 'LIVERPOOL', 5.5, K('#C9B477'), { a: 'middle', w: 700, ls: 1 }), x: -650 });
     }
     /* ---------- near-side lifeboats + davits ---------- */
     const nearG = G(P);
-    [362, 320, 278, 236, -262, -304, -346, -388].forEach((bx, i) => {
+    NBX.forEach((bx, i) => {
       if (!inR(bx)) return;
       const dk = S(bx) - 41, y = dk - 2.5;
-      E('path', { d: `M${bx - 16},${f2(dk)} L${bx - 16},${f2(y - 15)} Q${bx - 16},${f2(y - 20)} ${bx - 11.5},${f2(y - 19)} M${bx + 16},${f2(dk)} L${bx + 16},${f2(y - 15)} Q${bx + 16},${f2(y - 20)} ${bx + 11.5},${f2(y - 19)}`, stroke: K('#D9D4C8'), 'stroke-width': 1.3, fill: 'none', 'stroke-linecap': 'round' }, nearG);
-      const fl = E('path', { d: `M${bx - 11.5},${f2(y - 19)} q-1,14 1,26 M${bx + 11.5},${f2(y - 19)} q1,14 -1,26`, stroke: K('#C9B48E'), 'stroke-width': .8, fill: 'none' }, nearG);
+      E('path', { d: `M${bx - 16},${f2(dk)} L${bx - 16},${f2(y - 15)} Q${bx - 16},${f2(y - 20)} ${bx - DAV},${f2(y - 19)} M${bx + 16},${f2(dk)} L${bx + 16},${f2(y - 15)} Q${bx + 16},${f2(y - 20)} ${bx + DAV},${f2(y - 19)}`, stroke: K('#D9D4C8'), 'stroke-width': 1.3, fill: 'none', 'stroke-linecap': 'round' }, nearG);
+      const fl = E('path', { d: `M${bx - DAV},${f2(y - 19)} q-1,14 1,26 M${bx + DAV},${f2(y - 19)} q1,14 -1,26`, stroke: K('#C9B48E'), 'stroke-width': .8, fill: 'none' }, nearG);
       falls.push({ el: fl, idx: i });
       deckBoat(nearG, bx, false, i);
     });
-    /* navigation lights */
-    const nav = G(P, { opacity: 0 }); navGs.push(nav);
-    const lamp = (x, y, c) => { E('circle', { cx: f2(x), cy: f2(y), r: 9, fill: c, 'fill-opacity': .28 }, nav); E('circle', { cx: f2(x), cy: f2(y), r: 2.6, fill: c }, nav); };
-    if (bow) { lamp(mastX(MF, -340) + 4, -340, '#FFF4D6'); lamp(442, S(442) - 53, '#FF4A4A'); }
-    else lamp(-702, -110, '#FFF4D6');
+    /* navigation lights: white masthead + stern; the visible sidelight is green (starboard) when
+       the bow faces right, red (port) when the ship is flipped */
+    const lamp = (pg, x, y, c) => { E('circle', { cx: f2(x), cy: f2(y), r: 9, fill: c, 'fill-opacity': .28 }, pg); E('circle', { cx: f2(x), cy: f2(y), r: 2.6, fill: c }, pg); };
+    const nav = G(P, { opacity: 0 }); navGs.push({ g: nav, side: 0 });
+    if (bow) {
+      lamp(nav, mastX(MF, -340) + 4, -340, '#FFF4D6');
+      const stb = G(P, { opacity: 0 }), prt = G(P, { opacity: 0 }); navGs.push({ g: stb, side: 1 }, { g: prt, side: -1 });
+      lamp(stb, 442, S(442) - 53, '#3CD27A'); lamp(prt, 442, S(442) - 53, '#FF4A4A');
+    } else lamp(nav, -702, -110, '#FFF4D6');
     /* break edge (visible when split) */
     const bk = G(P, { opacity: 0 }); breakGs.push(bk);
     const dir = bow ? 1 : -1, jag = [];
@@ -328,22 +394,41 @@ function Titanic(parent, o = {}) {
     let dl = ''; [-41, -21, 0, 20, 40].forEach(off => { const y = S(XB) + off; dl += `M${XB - dir * 2},${f2(y)} h${dir * 12} `; });
     E('path', { d: dl, stroke: '#6A4636', 'stroke-width': 1.6 }, bk);
     E('path', { d: wldPl(jag), stroke: '#8A7A70', 'stroke-width': 1.2, fill: 'none' }, bk);
-    /* pennant (mainmast) */
-    if (!bow) { const fg = G(P); tf(fg, MM.top[0], MM.top[1] + 2); flagEl = E('path', { fill: K('#D83A3A') }, fg); }
+    /* pennant (mainmast) — counter-rotated in anim() so it streams/hangs in world space */
+    if (!bow) { flagG = G(P); tf(flagG, MM.top[0], MM.top[1] + 2); flagEl = E('path', { fill: K('#D83A3A') }, flagG); }
   }
   buildPiece(sternG, -760, XB, false);
   buildPiece(bowG, XB, 760, true);
+  sealLights();
 
-  /* ---------- smoke (root frame) ---------- */
-  const NP = 13, puffs = [];
-  for (let f = 0; f < 3; f++) for (let i = 0; i < NP; i++) puffs.push({ g: wldPuff(smokeG, K('#4D4844'), K('#706963'), K('#38332F'), 14), f, i });
-  /* ---------- wake ---------- */
+  /* ---------- smoke (root frame): one anchored, jittered plume per working funnel ---------- */
+  const plumes = [0, 1, 2].map(f => wldPlume(smokeG, { n: 15, r: 16, w: FW, seed: f * 3.7 + 1, rate: .24, rise: 170, drift: 250,
+    cols: [K('#4D4844'), K('#6E6761'), K('#38332F')], cols2: [K('#5E5853'), K('#837B74'), K('#45403B')] }));
+  /* ---------- wake: far-side bow wave + stern trail behind the hull, near-side bow wave in front ---------- */
   const bowW = G(wakeG), sternW = G(wakeG);
   const bwIn = G(bowW);
-  E('path', { d: 'M-210,4 Q-130,3 -64,-3 Q-26,-8 -9,-20 Q0,-28 8,-22 Q15,-15 30,-8 Q52,-1 80,3 Q40,7 -40,7 Q-130,7 -210,6 Z', fill: foamC, 'fill-opacity': .9 }, bwIn);
-  E('path', { d: 'M-160,5 Q-90,4 -44,-1 Q-16,-5 -6,-14 Q0,-19 4,-15 Q10,-9 24,-4 Q-20,3 -160,6 Z', fill: mix(foamC, '#6FA8CC', .4), 'fill-opacity': .55 }, bwIn);
-  E('path', { d: 'M46,6 Q80,9 120,6 M-60,9 Q-130,11 -220,9', stroke: foamC, 'stroke-width': 2, 'stroke-opacity': .5, fill: 'none', 'stroke-linecap': 'round' }, bwIn);
-  const spray = []; for (let i = 0; i < 10; i++) spray.push(E('circle', { r: 2 + hash(i * 3.3) * 2.2, fill: foamC }, bowW));
+  E('path', { d: 'M-150,4 Q-90,2 -50,-4 Q-20,-10 -6,-26 Q2,-34 9,-28 Q16,-20 32,-10 Q56,-1 84,3 Q40,7 -40,7 Q-100,7 -150,6 Z', fill: mix(foamC, '#6FA8CC', .25), 'fill-opacity': .85 }, bwIn);
+  const spray = []; for (let i = 0; i < 16; i++) spray.push({ el: E('circle', { r: 1.6 + hash(i * 3.3) * 2.6, fill: foamC }, foamG), a: hash(i * 5.1), v: hash(i * 7.9), z: hash(i * 2.3) });
+  /* near-side bow wave (drawn over the hull): crest climbing the stem, curling lip, secondary hump,
+     whisker running down-and-aft toward the viewer */
+  const bowF = G(foamG), bfIn = G(bowF);
+  const whisk = [E('path', { d: 'M-6,4 C-70,9 -180,22 -360,46', stroke: foamC, 'stroke-width': 7, 'stroke-opacity': .18, fill: 'none', 'stroke-linecap': 'round' }, bfIn),
+    E('path', { d: 'M-6,4 C-70,9 -180,22 -360,46', stroke: foamC, 'stroke-width': 2.4, 'stroke-opacity': .75, fill: 'none', 'stroke-linecap': 'round', 'stroke-dasharray': '70 10 40 16 26 22 14 30' }, bfIn),
+    E('path', { d: 'M40,5 C90,8 150,14 230,26', stroke: foamC, 'stroke-width': 2, 'stroke-opacity': .45, fill: 'none', 'stroke-linecap': 'round', 'stroke-dasharray': '30 14 18 24' }, bfIn)];
+  const bwBase = ' L112,5 Q96,13 80,7 Q62,15 44,8 Q20,16 -4,9 Q-30,16 -56,9 Q-86,15 -116,8 Q-150,14 -184,8 Q-220,13 -256,7 Q-296,11 -330,6 Z';
+  E('path', { d: 'M-330,6 C-290,4 -246,-4 -212,-10 C-190,-14 -172,-11 -152,-7 C-122,-3 -98,-7 -76,-13 C-50,-20 -32,-30 -20,-41 C-12,-49 -4,-54 5,-53 C13,-52 18,-46 16,-40 C13,-36 14,-33 18,-29 C30,-18 46,-8 64,-2 C80,3 96,5 112,5' + bwBase, fill: foamC, 'fill-opacity': .95 }, bfIn);
+  E('path', { d: 'M-300,7 C-252,6 -218,0 -198,-4 C-176,-6 -150,-2 -120,0 C-90,1 -62,-6 -40,-15 C-26,-22 -16,-30 -8,-36 C-4,-26 6,-14 22,-5 C40,3 60,6 82,7 Z', fill: mix(foamC, '#5E8FB8', .35), 'fill-opacity': .55 }, bfIn);
+  E('path', { d: 'M-64,-15 C-44,-21 -28,-32 -18,-43 M-232,-6 C-214,-11 -196,-13 -176,-10', stroke: '#FFFFFF', 'stroke-width': 2.2, 'stroke-opacity': .9, fill: 'none', 'stroke-linecap': 'round' }, bfIn);
+  [[-22, -40, 5.5], [-10, -49, 6.5], [3, -53, 5.5], [13, -46, 4], [-36, -30, 4.5], [-52, -21, 3.5], [-196, -11, 3.2], [-214, -9, 2.6], [30, -21, 3], [44, -12, 2.6]].forEach(([x, y, r], i) =>
+    E('circle', { cx: x, cy: y, r, fill: i % 3 ? '#FFFFFF' : foamC }, bfIn));
+  [[-30, -14, 3.4], [-12, -26, 2.6], [8, -18, 2.2], [-150, -1, 2.4], [-100, -2, 2], [24, -4, 1.8]].forEach(([x, y, r]) => E('circle', { cx: x, cy: y, r, fill: mix(foamC, '#5E8FB8', .4), 'fill-opacity': .45 }, bfIn));
+  /* broken foam fringe along the base so the wave melts into the sea */
+  for (let i = 0; i < 16; i++) { const x = lerp(-300, 100, i / 15) + (hash(i * 3.9) - .5) * 14; E('ellipse', { cx: f2(x), cy: f2(10 + hash(i * 2.3) * 5), rx: f2(5 + hash(i * 1.7) * 9), ry: f2(1.6 + hash(i * 5.1) * 1.8), fill: foamC, 'fill-opacity': f2(.35 + .4 * hash(i * 7.3)) }, bfIn); }
+  /* funnel-4 splash during the break-up */
+  const fSplash = G(foamG, { opacity: 0 });
+  const fsRing = E('ellipse', { fill: foamC, 'fill-opacity': .75 }, fSplash), fsRing2 = E('ellipse', { fill: 'none', stroke: foamC, 'stroke-width': 2.4 }, fSplash);
+  const fsDrops = []; for (let i = 0; i < 14; i++) fsDrops.push({ el: E('circle', { r: 2 + hash(i * 1.9) * 3.4, fill: foamC }, fSplash), a: -Math.PI * (.1 + .8 * hash(i * 4.7 + 1)), v: .5 + .7 * hash(i * 2.2 + 3) });
+  const fsCol = E('path', { fill: foamC, 'fill-opacity': .9 }, fSplash);
   const trail = [];
   E('path', { d: 'M8,1 C-150,2 -420,5 -900,9 L-900,24 C-420,17 -150,9 8,6 Z', fill: lgrad([[0, foamC, 0], [.7, foamC, .14], [1, foamC, .38]], 0, 0, 1, 0) }, sternW);
   const trGrad = lgrad([[0, foamC, 0], [.6, foamC, .45], [1, foamC, .85]], 0, 0, 1, 0);
@@ -355,18 +440,38 @@ function Titanic(parent, o = {}) {
   const foamA = [0, 1].map(() => E('path', { fill: 'none', stroke: foamC, 'stroke-linecap': 'round', 'stroke-opacity': .7 }, foamG));
   const foamB = [0, 1].map(() => E('path', { fill: 'none', stroke: foamC, 'stroke-linecap': 'round', 'stroke-opacity': .22, 'stroke-width': 7 }, foamG));
   const bub = []; for (let i = 0; i < 22; i++) bub.push(E('circle', { r: 3, fill: foamC }, foamG));
-  const refl = []; for (let j = 0; j < 44; j++) refl.push({ el: E('line', { stroke: j % 3 ? '#FFC864' : '#FFE3A0', 'stroke-width': 2.2, 'stroke-linecap': 'round' }, reflG), u: hash(j * 3.71 + 1), d: hash(j * 5.13 + 2), w: hash(j * 7.7 + 3) });
-
+  /* rough sea: short horizontal glints */
+  const roughG = G(reflG);
+  const refl = []; for (let j = 0; j < 44; j++) refl.push({ el: E('line', { stroke: j % 3 ? '#FFC864' : '#FFE3A0', 'stroke-width': 2.2, 'stroke-linecap': 'round' }, roughG), u: hash(j * 3.71 + 1), d: hash(j * 5.13 + 2), w: hash(j * 7.7 + 3) });
+  /* calm (glassy) sea: dim mirrored ship + long wavering light columns under the lit windows */
+  const calmG = G(reflG);
+  let mirG = null;
+  if (o.mirror !== false && (o.mirror || o.calm)) {
+    const cid2 = uid('tsh'); clipG.setAttribute('id', cid2);
+    mirG = G(calmG, { opacity: night ? .13 : .2 }); mirG.setAttribute('transform', 'scale(1,-.92)');
+    const u = E('use', {}, mirG); u.setAttribute('href', '#' + cid2);
+    E('rect', { x: -900, y: -2, width: 1800, height: 3, fill: night ? '#000000' : '#FFFFFF', 'fill-opacity': .15 }, mirG);
+  }
+  const strG = lgrad([[0, '#FFE6B0', .75], [.3, '#FFD07A', .42], [1, '#FFB04A', 0]]);
+  const streaks = []; const NSTR = 36;
+  for (let j = 0; j < NSTR; j++) {
+    const lx = -650 + 1320 * hash(j * 2.71 + 8), row = hash(j * 4.4 + 1);
+    streaks.push({ el: E('path', { fill: strG }, calmG), lx, ly: S(lx) + (row < .5 ? 33 : row < .8 ? -11 : -32), len: 110 + 150 * hash(j * 6.3 + 2), w0: .9 + 2 * Math.pow(hash(j * 8.1 + 3), 1.5), lg: j });
+  }
   /* ---------- state + pose ---------- */
-  const st = { x: 0, y: 0, s: 1, tilt: 0, split: 0, sink: 0, lights: mood === 'night' ? 1 : 0, smoke: 1, wake: 0, boats: 16, wind: 1 };
-  let MB = [1, 0, 0, 1, 0, 0], MS = MB.slice(), cuts = [null, null], sp = 0, wakeEff = 0, churn = 0, T = 0;
+  const st = { x: 0, y: 0, s: 1, sx: 1, flip: false, tilt: 0, split: 0, sink: 0, lights: night ? 1 : 0, smoke: 1, wake: 0, boats: 16, wind: 1, calm: !!o.calm };
+  let MB = [1, 0, 0, 1, 0, 0], MS = MB.slice(), cuts = [null, null], sp = 0, wakeEff = 0, churn = 0, T = 0, fd = 1, sxv = 1, fsP = null, F4 = null, animSince = false, lastWarm = -1, lastNav = -9;
   const KEYS = [[MF.top[0], MF.top[1] - 4], [MM.top[0], MM.top[1] - 4], [-716, -104], [-689, 54], [-600, 60], [706, -117], [660, 60], [XB, -132], [XB, 60]].concat(FX.map(fx => [fx + FR, fBase(fx) - FH - 4]));
   const polyB = [[XB, -132], [432, S(432) - 41], [456, S(456) - 21], [706, -117], [701, 8], [660, 60], [XB, 60]];
   const polyS = [[-704, -104], [-575, S(-575) - 21], [-525, S(-525) - 41], [XB, S(XB) - 41], [XB, 60], [-600, 60], [-652, 26], [-656, -7], [-688, -12], [-713, -78]];
   const sh = { g: root, root, bowG, sternG, XB };
+  /* set(): pose. It animates too (with the last at) unless anim(at) was called since the previous
+     set(), so the usual per-frame "set(state); anim(at)" does the work only once. */
   sh.set = function (u) {
     if (u) Object.assign(st, u);
-    tf(root, st.x, st.y, 0, st.s);
+    fd = st.flip ? -1 : 1; sxv = clamp(st.sx == null ? 1 : st.sx, .05, 2);
+    tf(root, st.x, st.y, 0, st.s * fd * sxv, st.s);
+    names.forEach(n => n.el.setAttribute('transform', st.flip ? `translate(${f2(2 * n.x)},0) scale(-1,1)` : ''));
     sp = ease(clamp(st.split));
     const base = M.rot(st.tilt, -60, 0);
     let mb = M.mul(base, M.mul(M.tr(58 * sp, 84 * sp), M.rot(30 * sp, XB, KL)));
@@ -384,32 +489,54 @@ function Titanic(parent, o = {}) {
     falls.forEach(f => op(f.el, f.idx >= 16 - nb ? 0 : 1));
     breakGs.forEach(b => op(b, clamp(sp * 6)));
     aerials.forEach(a => op(a, 1 - clamp(sp * 5)));
-    if (f4) { const k = clamp(sp / .55); f4.setAttribute('transform', k > 0 ? `translate(${f2(k * 26)},${f2(k * k * 40)}) rotate(${f2(easeIn(k) * 75)} ${f4.base[0]} ${f4.base[1]})` : ''); op(f4, 1 - clamp((sp - .25) / .3)); }
-    sh.anim(T);
+    /* funnel 4 topples into the gap and falls into the sea (stays opaque; the waterline clip hides it) */
+    fsP = null;
+    if (f4) {
+      const k = clamp((sp - .1) / .75);
+      if (k > 0) {
+        const det = MS[0] * MS[3] - MS[1] * MS[2], D = Math.pow(k, 2.4) * 620, rot = easeIn(k) * 60 + k * 28;
+        const tx = -MS[2] / det * D, ty = MS[0] / det * D;
+        f4.setAttribute('transform', `translate(${f2(tx)},${f2(ty)}) rotate(${f2(rot)} ${f4.base[0]} ${f2(f4.base[1])})`);
+        F4 = M.mul(M.tr(tx, ty), M.rot(rot, f4.base[0], f4.base[1]));
+        fsP = M.ap(M.mul(MS, F4), f4.mid[0], f4.mid[1]);
+      } else { f4.setAttribute('transform', ''); F4 = null; }
+    }
+    if (!animSince) sh.anim(T);
+    animSince = false;
   };
   sh.anim = function (at) {
-    T = at;
+    T = at; animSince = true;
     /* smoke */
-    const sm = clamp(st.smoke), em = EM.map(e => e ? M.ap(e.bow ? MB : MS, e.p[0], e.p[1]) : null);
-    puffs.forEach(p => {
-      const e = em[p.f];
-      if (!e || sm <= 0 || e[1] > -6) { op(p.g, 0); return; }
-      const ph = (at * .26 + p.i / NP + p.f * .137) % 1;
-      const dx = -ph * 270 * st.wind + Math.sin(at * 1.1 + p.i * 2.3 + p.f) * 8 * ph, dy = -Math.pow(ph, .62) * (130 + hash(p.i * 1.3 + p.f * 9) * 50) + ph * ph * 30;
-      tf(p.g, e[0] + dx, e[1] + dy, ph * 50 + p.i * 30, .34 + ph * 1.9);
-      op(p.g, sm * Math.min(1, ph * 9) * Math.pow(1 - ph, 1.4) * .9);
+    const sm = clamp(st.smoke);
+    EM.forEach((e, f) => {
+      const p = e ? M.ap(e.bow ? MB : MS, e.p[0], e.p[1]) : null;
+      plumes[f].step(at, p ? p[0] : 0, p ? p[1] : 0, p ? sm * clamp((-p[1] - 6) / 30) : 0, st.wind);
     });
-    /* lights with flicker */
-    const L = clamp(st.lights);
+    /* lights: slow per-group drift when fully lit, flicker ramps in smoothly as power fails */
+    const L = clamp(st.lights), fk = clamp((1 - L) * 4);
     LG.forEach((l, j) => {
-      let v = L;
-      if (L > 0 && L < .97) { const n = hash(Math.floor(at * 8 + j * .37) * 1.37 + j * 7.7); v = n < (1 - L) * .75 ? v * .12 : v * (.8 + .2 * Math.sin(at * 23 + j)); }
-      l.g.setAttribute('fill', mix(l.dark, l.lit, v));
+      let v = L * (.955 + .045 * Math.sin(at * (.45 + (j % 5) * .11) + j * 1.9));
+      if (fk > 0) { const n = hash(Math.floor(at * 8 + j * .37) * 1.37 + j * 7.7); v *= n < (1 - L) * .75 ? .12 : 1 - fk * .2 * (.5 + .5 * Math.sin(at * 23 + j)); }
+      l.v = v;
+      /* quantized + cached: an unchanged window group is not repainted (big win with many windows) */
+      const qv = Math.round(v * 40) / 40;
+      if (qv !== l.qv) { l.qv = qv; l.g.setAttribute('fill', mix(l.dark, l.lit, qv)); op(l.glow, qv * qv); }
     });
-    const fl = L < .97 && L > 0 ? (hash(Math.floor(at * 8) * 2.9) < (1 - L) * .7 ? .2 : 1) : 1;
-    glowGs.forEach(g => op(g, L * fl)); warmGs.forEach(g => op(g, L * fl)); navGs.forEach(g => op(g, L));
-    /* pennant */
-    if (flagEl) { const top = [], bot = []; for (let i = 0; i <= 8; i++) { const u2 = i / 8, w2 = Math.sin(at * 6 - u2 * 5) * 3.2 * u2 * st.wind + u2 * 2; top.push([-u2 * 54 * Math.min(1, .35 + st.wind), -5 * (1 - u2) + w2]); bot.unshift([-u2 * 54 * Math.min(1, .35 + st.wind), 5 * (1 - u2) + w2]); } flagEl.setAttribute('d', wldPl(top.concat(bot), true)); }
+    const fl = hash(Math.floor(at * 8) * 2.9) < (1 - L) * .7 ? .2 : 1;
+    const wv = Math.round(L * fl * 40) / 40;
+    if (wv !== lastWarm) { lastWarm = wv; warmGs.forEach(g => op(g, wv)); }
+    const nv = Math.round(L * 40) / 40 * fd;
+    if (nv !== lastNav) { lastNav = nv; navGs.forEach(n => op(n.g, L * (n.side === 0 || n.side === fd ? 1 : 0))); }
+    /* pennant: counter-rotated against the stern, droops with gravity when steep or windless */
+    if (flagEl) {
+      const a = Math.atan2(MS[1], MS[0]) * 180 / Math.PI, wnd = clamp(st.wind, 0, 1.5);
+      const droop = clamp(clamp((Math.abs(a) - 16) / 40) + (1 - clamp(wnd)) * .5);
+      tf(flagG, MM.top[0], MM.top[1] + 2, -a - droop * 80);
+      const amp = 3.2 * Math.max(.25, wnd) * (1 - droop * .6), len = 54 * (1 - droop * .12) * Math.min(1, .45 + wnd * .7);
+      const top = [], bot = [];
+      for (let i = 0; i <= 8; i++) { const u2 = i / 8, w2 = Math.sin(at * (3 + 3 * wnd) - u2 * 5) * amp * u2 + u2 * 2 * (1 - droop); top.push([-u2 * len, -5 * (1 - u2) + w2]); bot.unshift([-u2 * len, 5 * (1 - u2) + w2]); }
+      flagEl.setAttribute('d', wldPl(top.concat(bot), true));
+    }
     /* waterline foam */
     const amp = 1.3 + wakeEff * 1.2 + churn * 2.5;
     [0, 1].forEach(k => {
@@ -429,11 +556,34 @@ function Titanic(parent, o = {}) {
       b.setAttribute('cx', f2(x)); b.setAttribute('cy', f2(-2 - q * 9)); b.setAttribute('r', f2(2 + q * 6));
       op(b, churn * (1 - q) * .8);
     });
+    /* funnel-4 splash */
+    const fq = fsP ? clamp((fsP[1] + 30) / 380) : 0;
+    if (fq > 0 && fq < 1) {
+      op(fSplash, 1); const e = easeOut(fq), x = fsP[0];
+      fsRing.setAttribute('cx', f2(x)); fsRing.setAttribute('cy', 2); fsRing.setAttribute('rx', f2(24 + 110 * e)); fsRing.setAttribute('ry', f2(5 + 9 * e)); fsRing.setAttribute('fill-opacity', f2((1 - fq) * .75));
+      fsRing2.setAttribute('cx', f2(x)); fsRing2.setAttribute('cy', 3); fsRing2.setAttribute('rx', f2(40 + 170 * e)); fsRing2.setAttribute('ry', f2(8 + 15 * e)); fsRing2.setAttribute('stroke-opacity', f2((1 - fq) * .6));
+      const H = 150 * Math.sin(Math.PI * Math.min(1, fq * 1.4)), w = 34 + 46 * e;
+      let cd = `M${f2(x - w)},4`;
+      [[-.78, .5], [-.42, .82], [-.08, 1], [.3, .74], [.66, .55], [.95, .28]].forEach(([u, hk], i) => {
+        const sx = x + u * w, sy = -H * hk * (.85 + .15 * Math.sin(at * 9 + i)), vy = -H * hk * .28;
+        cd += ` Q${f2(sx - w * .12)},${f2(vy)} ${f2(sx - 2)},${f2(sy)} Q${f2(sx + 3)},${f2(sy - 5)} ${f2(sx + 5)},${f2(sy + 4)}`;
+      });
+      fsCol.setAttribute('d', cd + ` Q${f2(x + w * .98)},-4 ${f2(x + w)},4 Z`); op(fsCol, (1 - fq) * .95);
+      fsDrops.forEach(dp => { const dy = Math.sin(dp.a) * dp.v * fq * 300 + 360 * fq * fq; dp.el.setAttribute('cx', f2(x + Math.cos(dp.a) * dp.v * fq * 230)); dp.el.setAttribute('cy', f2(dy)); op(dp.el, dy > 2 ? 0 : (1 - fq) * clamp(fq * 8)); });
+    } else op(fSplash, 0);
     /* bow wave + stern trail */
     const cb = cuts[0], cs = cuts[1];
-    if (wakeEff > .01 && cb) { op(bowW, wakeEff); tf(bowW, cb[1] - 4, 0); tf(bwIn, 0, 0, 0, .7 + .3 * wakeEff, (.75 + .25 * wakeEff) * (1 + .1 * Math.sin(at * 2.3)));
-      spray.forEach((s2, i) => { const q = (at * 1.3 + i / 10) % 1; s2.setAttribute('cx', f2(-6 - q * (40 + 50 * hash(i)))); s2.setAttribute('cy', f2(-10 - Math.sin(Math.PI * q) * (14 + 16 * hash(i * 2)) + q * 8)); op(s2, (1 - q) * .9); });
-    } else op(bowW, 0);
+    if (wakeEff > .01 && cb) {
+      const pul = 1 + .08 * Math.sin(at * 2.3) + .04 * Math.sin(at * 5.1);
+      op(bowW, wakeEff); tf(bowW, cb[1] - 4, 0); tf(bwIn, 0, 0, 0, .6 + .4 * wakeEff, (.5 + .5 * wakeEff) * pul);
+      op(bowF, Math.min(1, wakeEff * 1.6)); tf(bowF, cb[1] - 3, 0); tf(bfIn, 0, 0, 0, .45 + .55 * wakeEff, (.3 + .7 * wakeEff) * pul);
+      whisk.forEach((w, i) => w.setAttribute('stroke-dashoffset', f2(at * (90 + i * 20))));
+      spray.forEach((s2, i) => {
+        const q = (at * 1.4 + i / spray.length) % 1, vx = 20 + 70 * s2.v, vy = 30 + 46 * s2.a;
+        s2.el.setAttribute('cx', f2(cb[1] + (2 + vx * q) * (.5 + .5 * wakeEff))); s2.el.setAttribute('cy', f2((-48 - vy * q + 120 * q * q) * (.3 + .7 * wakeEff) + s2.z * 4));
+        op(s2.el, wakeEff * (1 - q) * .95);
+      });
+    } else { op(bowW, 0); op(bowF, 0); spray.forEach(s2 => op(s2.el, 0)); }
     if (wakeEff > .01 && cs) { op(sternW, wakeEff); tf(sternW, cs[0] + 6, 0, 0, .4 + .6 * wakeEff, 1);
       trail.forEach((p, i) => p.setAttribute('stroke-dashoffset', f2(at * (120 + i * 25))));
       churnS.forEach((c, i) => { const q = (at * 1.5 + i / 8) % 1; c.setAttribute('cx', f2(-6 - q * 110)); c.setAttribute('cy', f2(2 + (i % 3) * 2.5 + q * 3)); c.setAttribute('rx', f2(7 + q * 26)); c.setAttribute('ry', f2(2.5 + q * 2.5)); op(c, Math.sin(Math.PI * Math.min(1, q * 1.4)) * .7); });
@@ -441,26 +591,51 @@ function Titanic(parent, o = {}) {
     /* light reflections on the water */
     const ux0 = Math.min(cb ? cb[0] : 1e9, cs ? cs[0] : 1e9), ux1 = Math.max(cb ? cb[1] : -1e9, cs ? cs[1] : -1e9);
     const rv = L * fl * (1 - clamp(st.sink * 2.5));
-    refl.forEach((r, j) => {
-      if (rv <= .01 || ux1 <= ux0) { op(r.el, 0); return; }
-      const x = lerp(ux0 + 20, ux1 - 20, r.u), y = 5 + Math.pow(r.d, 1.3) * 62, wdt = (6 + 22 * r.w) * (1 - r.d * .5);
-      const xx = x + Math.sin(at * 1.7 + j) * 4;
-      r.el.setAttribute('x1', f2(xx - wdt / 2)); r.el.setAttribute('x2', f2(xx + wdt / 2)); r.el.setAttribute('y1', f2(y)); r.el.setAttribute('y2', f2(y));
-      op(r.el, rv * (.28 + .62 * Math.max(0, Math.sin(at * 2.6 + j * 1.7))) * (1 - r.d * .55));
-    });
+    if (st.calm) {
+      op(roughG, 0); op(calmG, 1);
+      if (mirG) op(mirG, (night ? .13 : .2) * (1 - clamp(st.sink * 1.4)));
+      streaks.forEach((r, j) => {
+        const P = M.ap(r.lx >= XB ? MB : MS, r.lx, r.ly), lv = LG[r.lg % LG.length].v || 0;
+        const k = rv * lv * clamp((-P[1] - 8) / 30);
+        if (k <= .02) { op(r.el, 0); return; }
+        const len = r.len * (.85 + .15 * Math.sin(at * .9 + j)); let d = '', y = 4, i = 0;
+        /* a column of lozenge-shaped glints: long near the hull, shorter with wider gaps further down */
+        while (y < 4 + len && i < 7) {
+          const t = (y - 4) / len, sl = (30 - 18 * t) * (.6 + .6 * hash(j * 3.3 + i * 1.7)), cx = P[0] + Math.sin(at * 1.7 + j * 2.1 + i * .9) * (.6 + 4.5 * t);
+          const hw = (r.w0 * (1 - .5 * t) * (.75 + .25 * Math.sin(at * 2.6 + i * 1.7 + j)) + .3) * (.55 + .45 / Math.max(.3, st.s));
+          d += `M${f2(cx)},${f2(y)} L${f2(cx + hw)},${f2(y + sl * .45)} L${f2(cx + hw * .6)},${f2(y + sl)} L${f2(cx - hw * .6)},${f2(y + sl)} L${f2(cx - hw)},${f2(y + sl * .45)} Z`;
+          y += sl + 2.5 + 11 * t * (.5 + .5 * Math.sin(at * 1.3 + i + j)) + 4 * hash(j + i * 7.1); i++;
+        }
+        r.el.setAttribute('d', d); op(r.el, k);
+      });
+    } else {
+      op(calmG, 0); op(roughG, 1);
+      refl.forEach((r, j) => {
+        if (rv <= .01 || ux1 <= ux0) { op(r.el, 0); return; }
+        const x = lerp(ux0 + 20, ux1 - 20, r.u), y = 5 + Math.pow(r.d, 1.3) * 62, wdt = (6 + 22 * r.w) * (1 - r.d * .5);
+        const xx = x + Math.sin(at * 1.7 + j) * 4;
+        r.el.setAttribute('x1', f2(xx - wdt / 2)); r.el.setAttribute('x2', f2(xx + wdt / 2)); r.el.setAttribute('y1', f2(y)); r.el.setAttribute('y2', f2(y));
+        op(r.el, rv * (.28 + .62 * Math.max(0, Math.sin(at * 2.6 + j * 1.7))) * (1 - r.d * .55));
+      });
+    }
   };
-  /* ---------- anchors ---------- */
+  /* ---------- anchors (sh.L = local coords; the functions return parent coords) ---------- */
+  const davY = x => S(x) - 41 - 2.5 - 19;
   const LOC = { crowsNest: CN, bridge: [424, S(424) - 60], bow: [706, -117], stern: [-712, -92], wireless: [338, S(338) - 50],
-    boatDeck: [0, S(0) - 41], breakTop: [XB, S(XB) - 41], foremast: MF.top, mainmast: MM.top, keelBreak: [XB, KL] };
+    boatDeck: [0, S(0) - 41], breakTop: [XB, S(XB) - 41], foremast: MF.top, mainmast: MM.top, keelBreak: [XB, KL],
+    name: [nameX, nameY], davits: NBX.map(bx => [[bx - DAV, davY(bx)], [bx + DAV, davY(bx)]]) };
   sh.L = LOC; sh.S = S;
-  sh.pt = (x, y) => { const p = M.ap(x >= XB ? MB : MS, x, y); return [st.x + p[0] * st.s, st.y + p[1] * st.s]; };
+  sh.pt = (x, y) => { const p = M.ap(x >= XB ? MB : MS, x, y); return [st.x + p[0] * st.s * fd * sxv, st.y + p[1] * st.s]; };
   sh.crowsNest = () => sh.pt(CN[0], CN[1]);
   sh.bridge = () => sh.pt(LOC.bridge[0], LOC.bridge[1]);
   sh.bow = () => sh.pt(706, -117);
   sh.stern = () => sh.pt(-712, -92);
   sh.wireless = () => sh.pt(LOC.wireless[0], LOC.wireless[1]);
-  sh.funnelTop = i => sh.pt(FX[i] + FR, fBase(FX[i]) - FH);
-  sh.boatAt = i => { const bx = [362, 320, 278, 236, -262, -304, -346, -388][i % 8]; return sh.pt(bx, S(bx) - 52); };
+  sh.funnelTop = i => { const x = FX[i] + FR, y = fBase(FX[i]) - FH; if (i === 3 && F4) { const q = M.ap(M.mul(MS, F4), x, y); return [st.x + q[0] * st.s * fd * sxv, st.y + q[1] * st.s]; } return sh.pt(x, y); };
+  sh.boatAt = i => { const bx = NBX[i % 8]; return sh.pt(bx, S(bx) - 52); };
+  sh.davit = i => { const bx = NBX[i % 8]; return [sh.pt(bx - DAV, davY(bx)), sh.pt(bx + DAV, davY(bx))]; };
+  sh.boatScale = 35 / 300;
+  sh.lifeboat = i => { const top = sh.davit(i); return { x: (top[0][0] + top[1][0]) / 2, y: st.y, s: st.s * sh.boatScale, flip: !!st.flip, top }; };
   sh.angle = part => { const m = part === 'stern' ? MS : MB; return Math.atan2(m[1], m[0]) * 180 / Math.PI; };
   sh.scale = () => st.s;
   sh.state = st;
@@ -587,17 +762,29 @@ function wldCloud(p, cw, top, shd, hi, seed, flat) {
   const lay = (c, dy, k) => {
     const L = G(g); tf(L, 0, dy);
     if (flat) {
-      for (let i = 0; i < 6; i++) { const u = (hash(seed * 2.1 + i * 1.7) - .5) * .7, v = -ch * (.2 + hash(seed + i * 3.1) * .7), rx = cw * (.16 + hash(seed * 1.3 + i) * .22);
-        E('rect', { x: f2(cw * u - rx), y: f2(v - ch * .2 * k), width: f2(rx * 2 * k), height: f2(ch * .4 * k), rx: f2(ch * .2), fill: c }, L); }
-      E('rect', { x: f2(-cw * .5 * k), y: f2(-ch * .25 * k), width: f2(cw * k), height: f2(ch * .32 * k), rx: f2(ch * .16), fill: c }, L);
+      /* stratus: a long lens of overlapping ellipses, fattest left of centre, tapering to wisps */
+      const n = 9; let d = '';
+      for (let i = 0; i < n; i++) {
+        const u = (i / (n - 1) - .5) * .9 + (hash(seed * 2.1 + i * 1.7) - .5) * .05, tp = 1 - Math.pow(Math.min(1, Math.abs(u + .06) / .5), 1.7) * .82;
+        const rx = cw * (.1 + hash(seed * 1.3 + i) * .06) * (.65 + .35 * tp) * k, ry = ch * (.34 + hash(seed + i * 3.1) * .26) * tp * k;
+        const cx = cw * u, cy = -ry * .62 + (hash(seed * 4.1 + i) - .5) * ch * .12;
+        d += `M${f2(cx - rx)},${f2(cy)}a${f2(rx)},${f2(ry)} 0 1,0 ${f2(2 * rx)},0a${f2(rx)},${f2(ry)} 0 1,0 ${f2(-2 * rx)},0`;
+      }
+      d += `M${f2(-cw * .5 * k)},0 a${f2(cw * .5 * k)},${f2(ch * .2 * k)} 0 1,0 ${f2(cw * k)},0 a${f2(cw * .5 * k)},${f2(ch * .2 * k)} 0 1,0 ${f2(-cw * k)},0`;
+      E('path', { d, fill: c }, L);
     } else {
       E('rect', { x: -cw * .5, y: -ch * .36, width: cw, height: ch * .36, rx: ch * .18, fill: c }, L);
       [[-.3, -.38, .4], [-.08, -.62, .56 + hash(seed) * .14], [.18, -.5, .46], [.36, -.3, .3]].forEach(([u, v, r], i) =>
         E('circle', { cx: cw * u, cy: ch * v, r: ch * r * (.85 + hash(seed * 3 + i) * .3) * k, fill: c }, L));
     }
   };
-  lay(shd, flat ? ch * .14 : ch * .1, 1); lay(top, -ch * .05, .97);
+  lay(shd, flat ? ch * .2 : ch * .1, 1); lay(top, flat ? -ch * .02 : -ch * .05, .97);
   if (hi && !flat) { E('circle', { cx: -cw * .14, cy: -ch * .84, r: ch * .2, fill: hi }, g); E('circle', { cx: -cw * .33, cy: -ch * .6, r: ch * .12, fill: hi }, g); }
+  if (flat) {   /* soft top sheen + a thin bright rim where the low sun catches the underside */
+    E('ellipse', { cx: f2(-cw * .12), cy: f2(-ch * .5), rx: f2(cw * .2), ry: f2(ch * .14), fill: '#FFFFFF', 'fill-opacity': .14 }, g);
+    E('ellipse', { cx: f2(cw * .04), cy: f2(ch * .14), rx: f2(cw * .34), ry: f2(ch * .07), fill: shd, 'fill-opacity': .9 }, g);
+    E('ellipse', { cx: f2(cw * .02), cy: f2(ch * .15), rx: f2(cw * .22), ry: f2(ch * .035), fill: '#FFFFFF', 'fill-opacity': .22 }, g);
+  }
   return g;
 }
 function Sky(parent, o = {}) {
@@ -713,11 +900,14 @@ function Sky(parent, o = {}) {
 }
 
 /* =====================================================================
-   4) DOCK — Southampton quay, April 1912 (daylight). x ≈ -100…1700.
-   Dock(parent, {shipX:800, ropes:true})
+   4) DOCK — Southampton quay, April 1912 (daylight). x ≈ -160…1760.
+   Dock(parent, {shipX:800, shipY:650, shipS:.82, ropes:true, cranes:'raised'|'work'|false,
+                 craneX:[..], bunting:true, sheds:true|'left'|'right'|false, crowdGap:[[x0,x1],..]})
    Layers: dock.back (far shore + harbour water) · dock.mid (EMPTY: put the
    Titanic / tugs here, waterline at dock.shipY) · dock.front (quay, sheds,
-   cranes, bunting, crowd, carts). dock.ropes = mooring-rope group.
+   cranes, bunting, crowd, carts). Sub-groups: dock.quay, dock.ropes, dock.sheds
+   (dock.shedL, dock.shedR), dock.cranes, dock.lamps, dock.bunting, dock.crowd
+   (dock.crowdRows[0..2], back→front), dock.props.  dock.moor(sternPt, bowPt).
    Draw the Sky BEFORE the Dock.  .anim(at)
    ===================================================================== */
 function wldPerson(p, seed, o = {}) {
@@ -821,24 +1011,31 @@ function Dock(parent, o = {}) {
   E('rect', { x: X0, y: HZ, width: W, height: 14, fill: hz('#6E8A7C', .3), 'fill-opacity': .35 }, back);
   const rip = []; for (let i = 0; i < 70; i++) { const t = Math.pow(hash(i * 2.9), 1.3), y = HZ + 6 + t * 300; rip.push({ el: E('path', { d: `M0,0 h${f2(10 + t * 50 + hash(i) * 20)}`, stroke: '#D2E6EC', 'stroke-width': f2(1 + t * 1.6), 'stroke-opacity': f2(.25 + t * .3), 'stroke-linecap': 'round' }, back), x: X0 + hash(i * 5.7) * W, y, t, ph: hash(i * 1.1) * 6.28 }); }
   /* ---------- front: quay surface ---------- */
-  E('rect', { x: X0, y: QY, width: W, height: 380, fill: lgrad([[0, '#B6A487'], [1, '#8E7A60']]) }, front);
+  const quay = G(front);
+  E('rect', { x: X0, y: QY, width: W, height: 380, fill: lgrad([[0, '#B6A487'], [1, '#8E7A60']]) }, quay);
   const pid = uid('cob'); const pat = E('pattern', { id: pid, width: 34, height: 16, patternUnits: 'userSpaceOnUse' }, DEFS);
   E('rect', { x: 1, y: 1, width: 15, height: 6, rx: 3, fill: '#000', 'fill-opacity': .08 }, pat); E('rect', { x: 18, y: 9, width: 14, height: 6, rx: 3, fill: '#000', 'fill-opacity': .08 }, pat); E('rect', { x: 3, y: 2, width: 8, height: 2, rx: 1, fill: '#fff', 'fill-opacity': .08 }, pat);
-  E('rect', { x: X0, y: QY + 14, width: W, height: 380, fill: 'url(#' + pid + ')' }, front);
-  E('rect', { x: X0, y: QY, width: W, height: 12, fill: '#CFC6B6' }, front);
-  let jd = ''; for (let x2 = X0; x2 < X1; x2 += 46) jd += `M${x2},${QY} v12 `; E('path', { d: jd, stroke: '#9E9484', 'stroke-width': 1.5 }, front);
-  E('rect', { x: X0, y: QY + 12, width: W, height: 4, fill: '#000', 'fill-opacity': .18 }, front);
+  E('rect', { x: X0, y: QY + 14, width: W, height: 380, fill: 'url(#' + pid + ')' }, quay);
+  E('rect', { x: X0, y: QY, width: W, height: 12, fill: '#CFC6B6' }, quay);
+  let jd = ''; for (let x2 = X0; x2 < X1; x2 += 46) jd += `M${x2},${QY} v12 `; E('path', { d: jd, stroke: '#9E9484', 'stroke-width': 1.5 }, quay);
+  E('rect', { x: X0, y: QY + 12, width: W, height: 4, fill: '#000', 'fill-opacity': .18 }, quay);
   /* rail tracks */
-  [[748, 9], [846, 13]].forEach(([ry, gap]) => { let sd2 = ''; for (let x2 = X0; x2 < X1; x2 += 20) sd2 += `M${x2},${ry - 2} h9 v${gap + 4} h-9 Z `; E('path', { d: sd2, fill: '#5E4E3E', 'fill-opacity': .55 }, front);
-    E('path', { d: `M${X0},${ry} H${X1} M${X0},${ry + gap} H${X1}`, stroke: '#6E6A66', 'stroke-width': 3 }, front); E('path', { d: `M${X0},${ry - 1} H${X1} M${X0},${ry + gap - 1} H${X1}`, stroke: '#C8C2B8', 'stroke-width': 1 }, front); });
-  /* bollards + mooring ropes */
+  [[748, 9], [846, 13]].forEach(([ry, gap]) => { let sd2 = ''; for (let x2 = X0; x2 < X1; x2 += 20) sd2 += `M${x2},${ry - 2} h9 v${gap + 4} h-9 Z `; E('path', { d: sd2, fill: '#5E4E3E', 'fill-opacity': .55 }, quay);
+    E('path', { d: `M${X0},${ry} H${X1} M${X0},${ry + gap} H${X1}`, stroke: '#6E6A66', 'stroke-width': 3 }, quay); E('path', { d: `M${X0},${ry - 1} H${X1} M${X0},${ry + gap - 1} H${X1}`, stroke: '#C8C2B8', 'stroke-width': 1 }, quay); });
+  /* bollards + mooring ropes (ends derived from the ship's x / y / scale; dock.moor() re-aims them) */
+  const BOL = []; for (let bx = X0 + 40; bx < X1; bx += 170) { BOL.push(bx); const b = G(quay); tf(b, bx, QY + 12); E('path', { d: 'M-7,0 L-5.5,-12 Q-9,-13 -9,-16 L9,-16 Q9,-13 5.5,-12 L7,0 Z', fill: '#24262B' }, b); E('rect', { x: -9, y: -17, width: 18, height: 3, rx: 1.5, fill: '#3A3D44' }, b); }
   const ropes = G(front);
-  for (let bx = X0 + 40; bx < X1; bx += 170) { const b = G(front); tf(b, bx, QY + 12); E('path', { d: 'M-7,0 L-5.5,-12 Q-9,-13 -9,-16 L9,-16 Q9,-13 5.5,-12 L7,0 Z', fill: '#24262B' }, b); E('rect', { x: -9, y: -17, width: 18, height: 3, rx: 1.5, fill: '#3A3D44' }, b); }
-  const sx = o.shipX != null ? o.shipX : 800;
-  [[sx - 620, sx - 520], [sx + 540, sx + 470]].forEach(([b0, sx2]) => { const bx = X0 + 40 + Math.round((b0 - X0 - 40) / 170) * 170; E('path', { d: `M${bx},${QY + 2} Q${(bx + sx2) / 2},${QY - 20} ${sx2},${QY - 92}`, stroke: '#8A6E4A', 'stroke-width': 3, fill: 'none' }, ropes); });
+  const sx = o.shipX != null ? o.shipX : 800, sy0 = o.shipY != null ? o.shipY : 650, ss = o.shipS != null ? o.shipS : .82;
+  const nearB = x => BOL.reduce((m, b) => Math.abs(b - x) < Math.abs(m - x) ? b : m, BOL[0]);
+  const ropeEls = [0, 1].map(() => [E('path', { stroke: '#6E5434', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round' }, ropes), E('path', { stroke: '#A8875A', 'stroke-width': 1.6, fill: 'none', 'stroke-linecap': 'round', 'stroke-dasharray': '3 3' }, ropes)]);
+  const ropeB = [nearB(sx - 720 * ss), nearB(sx + 660 * ss)];
+  const moor = (pS, pB) => [pS, pB].forEach((pt, i) => { if (!pt) { op(ropeEls[i][0], 0); op(ropeEls[i][1], 0); return; } const bx = ropeB[i];
+    const d = `M${bx},${QY - 3} Q${f2((bx + pt[0]) / 2)},${f2(Math.max(QY, pt[1]) - 6)} ${f2(pt[0])},${f2(pt[1])}`; ropeEls[i].forEach(e => { e.setAttribute('d', d); op(e, 1); }); });
+  moor([sx - 634 * ss, sy0 - 51 * ss], [sx + 573 * ss, sy0 - 51 * ss]);
   if (o.ropes === false) op(ropes, 0);
   /* ---------- sheds ---------- */
-  const shedL = G(front); tf(shedL, 34, 0);
+  const sheds = G(front);
+  const shedL = G(sheds); tf(shedL, 34, 0);
   E('rect', { x: -130, y: 470, width: 430, height: 268, fill: '#9B5A40' }, shedL);
   let bd = ''; for (let r = 0; r < 24; r++) for (let c = 0; c < 20; c++) { if (hash(r * 31 + c * 7) > .3) continue; bd += `M${-126 + c * 22 + (r % 2) * 11},${474 + r * 11} h16 v6 h-16 Z `; } E('path', { d: bd, fill: '#B06A4C', 'fill-opacity': .7 }, shedL);
   E('path', { d: 'M-146,474 L85,360 L316,474 L300,474 L85,374 L-130,474 Z', fill: '#5D636E' }, shedL);
@@ -853,60 +1050,72 @@ function Dock(parent, o = {}) {
   E('rect', { x: 150, y: 600, width: 60, height: 138, fill: '#4C6B4A' }, shedL); for (let k = 0; k < 5; k++) E('path', { d: `M${156 + k * 11},604 V734`, stroke: '#3B5539', 'stroke-width': 2 }, shedL);
   [[-100, 560], [-40, 560], [220, 560]].forEach(([wx, wy]) => { E('path', { d: `M${wx},${wy + 50} V${wy + 12} Q${wx + 20},${wy - 8} ${wx + 40},${wy + 12} V${wy + 50} Z`, fill: '#D2C3A8' }, shedL); E('path', { d: `M${wx + 4},${wy + 46} V${wy + 14} Q${wx + 20},${wy - 2} ${wx + 36},${wy + 14} V${wy + 46} Z`, fill: '#86A6B4' }, shedL); E('path', { d: `M${wx + 20},${wy + 2} V${wy + 46} M${wx + 4},${wy + 28} H${wx + 36}`, stroke: '#D2C3A8', 'stroke-width': 2.5 }, shedL); });
   E('rect', { x: -130, y: 730, width: 430, height: 8, fill: '#6E6050' }, shedL);
-  const shedR = G(front);
+  const shedR = G(sheds);
   E('rect', { x: 1430, y: 500, width: 360, height: 238, fill: '#C2BB94' }, shedR);
   let vb = ''; for (let k = 0; k < 30; k++) vb += `M${1436 + k * 12},502 V736 `; E('path', { d: vb, stroke: '#A39C78', 'stroke-width': 2 }, shedR);
   E('path', { d: 'M1414,504 L1610,404 L1806,504 L1790,504 L1610,418 L1430,504 Z', fill: '#7A3E32' }, shedR);
   E('path', { d: 'M1430,504 L1610,418 L1790,504 Z', fill: '#B5AD86' }, shedR);
   E('rect', { x: 1478, y: 520, width: 264, height: 40, rx: 4, fill: '#7A3E32' }, shedR); E('rect', { x: 1484, y: 525, width: 252, height: 30, rx: 3, fill: '#F4ECD6' }, shedR);
-  TX(shedR, 1610, 547, 'OCEAN DOCK', 22, '#7A3E32', { a: 'middle', w: 800, ls: 3 });
+  TX(shedR, 1610, 547, 'BERTH 44', 22, '#7A3E32', { a: 'middle', w: 800, ls: 4 });
   E('rect', { x: 1520, y: 600, width: 90, height: 138, fill: '#2E2622' }, shedR); E('rect', { x: 1650, y: 586, width: 70, height: 56, fill: '#86A6B4' }, shedR); E('path', { d: 'M1685,586 V642 M1650,614 H1720', stroke: '#C2BB94', 'stroke-width': 3 }, shedR);
   const sign = G(shedR); tf(sign, 1456, 640); E('rect', { x: -4, y: 0, width: 6, height: 98, fill: '#3B2E22' }, sign); E('path', { d: 'M-12,-4 H62 L74,12 L62,28 H-12 Z', fill: '#2E4A3A' }, sign); TX(sign, 26, 18, 'BOARDING', 12, '#F4ECD6', { a: 'middle', w: 800, ls: 1 });
   E('rect', { x: 1430, y: 730, width: 360, height: 8, fill: '#7A6E58' }, shedR);
-  /* ---------- crowd (3 depth rows) ---------- */
-  const people = [];
-  const row = (y, s, x0, x1, step, tk, seed) => { const T2 = c => mix(c, '#B9C3C8', tk); const list = []; for (let px = x0, i = 0; px < x1; px += step * (.75 + hash(i * 3.3 + seed) * .5), i++) { if (hash(i * 6.1 + seed) < .12) continue; const pp = wldPerson(front, seed + i * 1.37, { tint: T2 }); pp.x = px; pp.y = y + (hash(i * 2.9 + seed) - .5) * 8; pp.sc = s * pp.s; list.push(pp); } list.sort((a, b) => a.y - b.y).forEach(pp => { front.appendChild(pp.g); people.push(pp); }); };
-  row(726, .52, 440, 1290, 24, .16, 11);
-  /* lamps & cranes (stand on the edge rail) */
-  const lampAt = lx => { const l = G(front); tf(l, lx, 770); E('path', { d: 'M-7,0 L-5,-12 L-3,-12 L-2.5,-150 L2.5,-150 L3,-12 L5,-12 L7,0 Z', fill: '#2F3B33' }, l); E('rect', { x: -12, y: -142, width: 24, height: 3, fill: '#2F3B33' }, l);
-    E('path', { d: 'M-9,-150 L-7,-170 L7,-170 L9,-150 Z', fill: '#E9E2C6' }, l); E('path', { d: 'M-11,-170 L0,-180 L11,-170 Z M-10,-151 h20', fill: '#2F3B33', stroke: '#2F3B33', 'stroke-width': 2 }, l); return l; };
-  [360, 760, 1120, 1390].forEach(lampAt);
-  const cranes = [];
-  [[560, 1], [980, 1], [1260, -1]].forEach(([cx, d]) => {
-    const c = G(front); tf(c, cx, 770);
+  if (o.sheds === false) op(sheds, 0); else if (o.sheds === 'left') op(shedR, 0); else if (o.sheds === 'right') op(shedL, 0);
+  /* ---------- portal cranes (stand on the quay-edge rail) ---------- */
+  const cranesG = G(front), cranes = [];
+  const cMode = o.cranes === false ? null : o.cranes === 'work' ? 'work' : 'raised';
+  /* 'raised': jibs topped up steeply and placed in the gaps between the ship's funnels/masts (from shipX/shipS) */
+  const cX = o.craneX || (cMode === 'work' ? [[560, 1], [980, 1], [1260, -1]] : [-440, -110, 210].map(L => [Math.round(sx + ss * (L - 8) + 17), 1]));
+  if (cMode) cX.forEach((cc) => {
+    const [cx, d] = Array.isArray(cc) ? cc : [cc, 1];
+    const c = G(cranesG); tf(c, cx, 770);
     E('path', { d: 'M-42,0 L-30,-170 M42,0 L30,-170 M-36,-80 L36,-80 M-40,-10 L32,-80 M40,-10 L-32,-80 M-33,-125 L33,-125 M-33,-125 L28,-165 M33,-125 L-28,-165', stroke: '#4F4A47', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round' }, c);
+    E('path', { d: 'M-42,0 L-30,-170', stroke: '#6E6762', 'stroke-width': 1.4, fill: 'none' }, c);
     E('rect', { x: -48, y: -4, width: 22, height: 8, rx: 3, fill: '#2E2B29' }, c); E('rect', { x: 26, y: -4, width: 22, height: 8, rx: 3, fill: '#2E2B29' }, c);
     E('rect', { x: -38, y: -176, width: 76, height: 10, fill: '#5A524C' }, c);
     const top = G(c); tf(top, 0, -176);
     E('rect', { x: -26, y: -46, width: 52, height: 46, rx: 4, fill: '#6E5E50' }, top); E('rect', { x: -26, y: -50, width: 52, height: 7, rx: 3, fill: '#4A3E36' }, top);
+    E('rect', { x: 12, y: -46, width: 14, height: 46, fill: '#5C4E43' }, top);
     E('rect', { x: d * 4 - 6, y: -36, width: 14, height: 12, fill: '#A9C4CC' }, top);
     E('rect', { x: -d * 26 - (d > 0 ? 20 : 0), y: -30, width: 20, height: 24, fill: '#3A3532' }, top);
-    const jx = -d * 190, jy = -300;
+    const jx = cMode === 'work' ? -d * 190 : -d * 92, jy = cMode === 'work' ? -300 : -350;
     E('path', { d: `M${d * 10},-30 L${jx},${jy} M${d * 20},-10 L${jx + d * 6},${jy + 10}`, stroke: '#4F4A47', 'stroke-width': 4, 'stroke-linecap': 'round' }, top);
-    let lat = ''; for (let k = 0; k < 9; k++) { const t0 = k / 9, t1 = (k + .5) / 9; lat += `M${f2(lerp(d * 10, jx, t0))},${f2(lerp(-30, jy, t0))} L${f2(lerp(d * 20, jx + d * 6, t1))},${f2(lerp(-10, jy + 10, t1))} `; }
+    let lat = ''; for (let k = 0; k < 10; k++) { const t0 = k / 10, t1 = (k + .5) / 10; lat += `M${f2(lerp(d * 10, jx, t0))},${f2(lerp(-30, jy, t0))} L${f2(lerp(d * 20, jx + d * 6, t1))},${f2(lerp(-10, jy + 10, t1))} `; }
     E('path', { d: lat, stroke: '#5E5854', 'stroke-width': 1.6 }, top);
     E('path', { d: `M0,-50 L${jx},${jy}`, stroke: '#3A3532', 'stroke-width': 1.2 }, top);
     const hook = G(top); const hr = E('path', { stroke: '#2E2B29', 'stroke-width': 1.4 }, hook); const hb = G(hook);
     E('path', { d: 'M-4,0 h8 v6 h-8 Z M0,6 v6 q0,6 -5,5', fill: '#2E2B29', stroke: '#2E2B29', 'stroke-width': 2, 'stroke-linecap': 'round' }, hb);
-    cranes.push({ hook, hr, hb, jx, jy, ph: cx * .01 });
+    cranes.push({ hook, hr, hb, jx, jy, ph: cx * .01, len: cMode === 'work' ? 150 : 120 });
   });
-  /* bunting between lamps, cranes and sheds */
-  const flags = [];
-  const anchors = [[334, 478], [360, 596], [560, 538], [760, 596], [980, 538], [1120, 596], [1260, 538], [1390, 596], [1440, 508]];
+  /* ---------- lamps ---------- */
+  const lamps = G(front);
+  const lampAt = lx => { const l = G(lamps); tf(l, lx, 770); E('path', { d: 'M-7,0 L-5,-12 L-3,-12 L-2.5,-150 L2.5,-150 L3,-12 L5,-12 L7,0 Z', fill: '#2F3B33' }, l); E('rect', { x: -12, y: -142, width: 24, height: 3, fill: '#2F3B33' }, l);
+    E('path', { d: 'M-9,-150 L-7,-170 L7,-170 L9,-150 Z', fill: '#E9E2C6' }, l); E('path', { d: 'M-11,-170 L0,-180 L11,-170 Z M-10,-151 h20', fill: '#2F3B33', stroke: '#2F3B33', 'stroke-width': 2 }, l); return l; };
+  const LX = [360, 760, 1120, 1390]; LX.forEach(lampAt);
+  /* ---------- bunting: strung low between the lamp crossbars and the sheds, under the portholes ---------- */
+  const bunting = G(front), flags = [];
+  const anchors = [[334, 600], [LX[0], 629], [LX[1], 629], [LX[2], 629], [LX[3], 629], [1430, 604]];
   const FC = ['#D64545', '#F4F1EA', '#3E6FB0', '#E8B83A', '#3F9A5A'];
   for (let i = 0; i < anchors.length - 1; i++) {
-    const [ax, ay] = anchors[i], [bx2, by2] = anchors[i + 1], sag = 34;
+    const [ax, ay] = anchors[i], [bx2, by2] = anchors[i + 1], sag = Math.min(16, Math.hypot(bx2 - ax, by2 - ay) * .045);
     const pt = t => [lerp(ax, bx2, t), lerp(ay, by2, t) + sag * 4 * t * (1 - t)];
     const pts = []; for (let k = 0; k <= 14; k++) pts.push(pt(k / 14));
-    E('path', { d: wldPl(pts), stroke: '#3A3530', 'stroke-width': 1.2, fill: 'none' }, front);
-    const L = Math.hypot(bx2 - ax, by2 - ay), n = Math.floor(L / 21);
+    E('path', { d: wldPl(pts), stroke: '#3A3530', 'stroke-width': 1.2, fill: 'none' }, bunting);
+    const L = Math.hypot(bx2 - ax, by2 - ay), n = Math.floor(L / 19);
     for (let k = 1; k < n; k++) { const t = k / n, p2 = pt(t), q = pt(t + .01), ang = Math.atan2(q[1] - p2[1], q[0] - p2[0]) * 180 / Math.PI;
-      const fg = G(front); tf(fg, p2[0], p2[1], ang); const fi = E('path', { d: 'M-6,0 L6,0 L0,14 Z', fill: FC[(i * 3 + k) % 5] }, fg); flags.push({ fi, ph: i * 1.3 + k * .7 }); }
+      const fg = G(bunting); tf(fg, p2[0], p2[1], ang); const fi = E('path', { d: 'M-5.5,0 L5.5,0 L0,12 Z', fill: FC[(i * 3 + k) % 5] }, fg); flags.push({ fi, ph: i * 1.3 + k * .7 }); }
   }
-  row(764, .6, 400, 1330, 30, .06, 23);
+  if (o.bunting === false) op(bunting, 0);
+  /* ---------- crowd (3 depth rows; carts and porters in the front rows) ---------- */
+  const crowd = G(front), crowdRows = [G(crowd), G(crowd), G(crowd)];
+  const people = [], gaps = o.crowdGap || [];
+  const inGap = x => gaps.some(([a, b2]) => x > a && x < b2);
+  const row = (ri, y, s, x0, x1, step, tk, seed) => { const T2 = c => mix(c, '#B9C3C8', tk); const list = []; for (let px = x0, i = 0; px < x1; px += step * (.75 + hash(i * 3.3 + seed) * .5), i++) { if (hash(i * 6.1 + seed) < .12 || (ri < 2 && inGap(px))) continue; const pp = wldPerson(crowdRows[ri], seed + i * 1.37, { tint: T2 }); pp.x = px; pp.y = y + (hash(i * 2.9 + seed) - .5) * 8; pp.sc = s * pp.s; list.push(pp); } list.sort((a, b2) => a.y - b2.y).forEach(pp => { crowdRows[ri].appendChild(pp.g); people.push(pp); }); };
+  row(0, 726, .52, 440, 1290, 24, .16, 11);
+  row(1, 764, .6, 400, 1330, 30, .06, 23);
   /* luggage carts with porters */
   const cart = (cx, cy, s, seed) => {
-    const c = G(front); tf(c, cx, cy, 0, s);
+    const c = G(crowdRows[2]); tf(c, cx, cy, 0, s);
     E('path', { d: 'M38,-14 L64,-44', stroke: '#6B4A2B', 'stroke-width': 4, 'stroke-linecap': 'round' }, c);
     E('rect', { x: -44, y: -20, width: 86, height: 8, rx: 2, fill: '#8A5E34' }, c);
     [[-40, -46, 44, 26, '#7A4A2A'], [6, -40, 34, 20, '#4A5A6A'], [-34, -62, 30, 16, '#B98A5A'], [2, -58, 26, 18, '#6A2E2E']].forEach(([x2, y2, w2, h2, col], i) => {
@@ -916,17 +1125,18 @@ function Dock(parent, o = {}) {
     });
     E('ellipse', { cx: 18, cy: -66, rx: 11, ry: 4, fill: '#E6D2B0' }, c); E('rect', { x: 7, y: -66, width: 22, height: 8, fill: '#D9C29C' }, c); E('path', { d: 'M7,-62 h22', stroke: '#B05A5A', 'stroke-width': 2 }, c);
     [-26, 26].forEach(wx => { E('circle', { cx: wx, cy: -8, r: 9, fill: '#3A2E24' }, c); E('circle', { cx: wx, cy: -8, r: 3, fill: '#8A7A6A' }, c); });
-    const pp = wldPerson(front, seed, { kind: 'porter', wave: false }); pp.x = cx + 78 * s; pp.y = cy; pp.sc = s * 1.05; people.push(pp);
+    const pp = wldPerson(crowdRows[2], seed, { kind: 'porter', wave: false }); pp.x = cx + 78 * s; pp.y = cy; pp.sc = s * 1.05; people.push(pp);
   };
   cart(470, 828, .82, 3.3); cart(1170, 836, .86, 7.7);
-  row(822, .7, 200, 1480, 52, 0, 41);
+  row(2, 822, .7, 200, 1480, 52, 0, 41);
   /* foreground props */
-  const fg2 = G(front);
-  [[-60, 900, 1], [1660, 910, 1.1]].forEach(([bx, by, s]) => { const b = G(fg2); tf(b, bx, by, 0, s); E('rect', { x: -40, y: -70, width: 80, height: 70, rx: 4, fill: '#9A6A3E' }, b); E('rect', { x: -40, y: -70, width: 80, height: 10, fill: '#7A4E2A' }, b); E('path', { d: 'M-34,-56 L34,-6 M34,-56 L-34,-6', stroke: '#7A4E2A', 'stroke-width': 5 }, b); E('rect', { x: -30, y: -44, width: 60, height: 18, rx: 2, fill: '#E9DCC0' }, b); TX(b, 0, -30, 'R.M.S.', 12, '#5A3B1E', { a: 'middle', w: 800 }); });
-  const coil = G(fg2); tf(coil, 1540, 890); [26, 19, 12].forEach(r => E('ellipse', { rx: r * 1.6, ry: r * .55, fill: 'none', stroke: '#B08A5A', 'stroke-width': 6 }, coil));
-  const barrel = G(fg2); tf(barrel, 120, 905); E('path', { d: 'M-24,0 Q-30,-35 -24,-70 L24,-70 Q30,-35 24,0 Z', fill: '#8A5A34' }, barrel); E('path', { d: 'M-27,-18 H27 M-27,-52 H27', stroke: '#3A3530', 'stroke-width': 4 }, barrel);
+  const props = G(front);
+  [[-60, 900, 1], [1660, 910, 1.1]].forEach(([bx, by, s]) => { const b = G(props); tf(b, bx, by, 0, s); E('rect', { x: -40, y: -70, width: 80, height: 70, rx: 4, fill: '#9A6A3E' }, b); E('rect', { x: -40, y: -70, width: 80, height: 10, fill: '#7A4E2A' }, b); E('path', { d: 'M-34,-56 L34,-6 M34,-56 L-34,-6', stroke: '#7A4E2A', 'stroke-width': 5 }, b); E('rect', { x: -30, y: -44, width: 60, height: 18, rx: 2, fill: '#E9DCC0' }, b); TX(b, 0, -30, 'R.M.S.', 12, '#5A3B1E', { a: 'middle', w: 800 }); });
+  const coil = G(props); tf(coil, 1540, 890); [26, 19, 12].forEach(r => E('ellipse', { rx: r * 1.6, ry: r * .55, fill: 'none', stroke: '#B08A5A', 'stroke-width': 6 }, coil));
+  const barrel = G(props); tf(barrel, 120, 905); E('path', { d: 'M-24,0 Q-30,-35 -24,-70 L24,-70 Q30,-35 24,0 Z', fill: '#8A5A34' }, barrel); E('path', { d: 'M-27,-18 H27 M-27,-52 H27', stroke: '#3A3530', 'stroke-width': 4 }, barrel);
   /* ---------- animation ---------- */
-  const dock = { g, back, mid, front, ropes, shipY: 650, quayY: QY };
+  const dock = { g, back, mid, front, quay, ropes, sheds, shedL, shedR, cranes: cranesG, lamps, bunting, crowd, crowdRows, props, shipY: sy0, quayY: QY, bollards: BOL };
+  dock.moor = moor;
   dock.anim = at => {
     people.forEach(pp => {
       const b = pp.jump ? -Math.abs(Math.sin(at * pp.fr * .6 + pp.ph)) * 5 : Math.sin(at * 2 + pp.ph) * .8;
@@ -935,8 +1145,8 @@ function Dock(parent, o = {}) {
       if (pp.wave) { tf(pp.arm, pp.side * 11, -77, pp.side * (16 + 24 * Math.sin(at * pp.fr + pp.ph))); if (pp.arm.hk) tf(pp.arm.hk, 0, -28, 0, .7 + .3 * Math.sin(at * 14 + pp.ph), 1); }
     });
     flags.forEach(f => f.fi.setAttribute('transform', `rotate(${f2(Math.sin(at * 3.2 + f.ph) * 12)}) scale(1,${f2(.9 + .1 * Math.sin(at * 5 + f.ph))})`));
-    cranes.forEach(c => { const sw = Math.sin(at * .9 + c.ph) * 7, len = 150 + Math.sin(at * .25 + c.ph) * 30; c.hr.setAttribute('d', `M${c.jx},${c.jy} L${f2(c.jx + sw)},${f2(c.jy + len)}`); tf(c.hb, c.jx + sw, c.jy + len); });
-    tSmoke.forEach(s => { const q = (at * .12 + s.k / 5 + s.i * .3) % 1; s.el.setAttribute('cx', f2(s.x - q * 50)); s.el.setAttribute('cy', f2(s.y - q * 40)); s.el.setAttribute('r', f2(4 + q * 12)); op(s.el, (1 - q) * .7); });
+    cranes.forEach(c => { const sw = Math.sin(at * .9 + c.ph) * 7, len = c.len + Math.sin(at * .25 + c.ph) * 30; c.hr.setAttribute('d', `M${c.jx},${c.jy} L${f2(c.jx + sw)},${f2(c.jy + len)}`); tf(c.hb, c.jx + sw, c.jy + len); });
+    tSmoke.forEach(s2 => { const q = (at * .12 + s2.k / 5 + s2.i * .3) % 1; s2.el.setAttribute('cx', f2(s2.x - q * 50)); s2.el.setAttribute('cy', f2(s2.y - q * 40)); s2.el.setAttribute('r', f2(4 + q * 12)); op(s2.el, (1 - q) * .7); });
     rip.forEach(r => { tf(r.el, r.x + Math.sin(at * .5 + r.ph) * 14, r.y); op(r.el, .5 + .5 * Math.sin(at * 1.2 + r.ph)); });
     clkH.setAttribute('transform', `rotate(${f2(at * .5)} 85 428)`);
   };
@@ -949,7 +1159,8 @@ function Dock(parent, o = {}) {
    Origin = waterline centre. lb = Lifeboat(parent, {mood, num, drop:380})
    lb.crew: group between the far and near hull sides (characters put here are
    hidden below the gunwale; feet ≈ y -6, gunwale ≈ y -46). lb.seats: [x,y].
-   lb.set({x,y,rot,s,flip,row (0..1 stroke phase), lower (0 at davits … 1 afloat)})
+   lb.set({x,y,rot,s,flip,row (0..1 stroke phase), lower (0 at davits … 1 afloat),
+           top:[[x,y],[x,y]] (falls' upper ends, parent coords, e.g. ship.davit(i)), drop})
    lb.anim(at): bobbing + ripples.
    ===================================================================== */
 function Lifeboat(parent, o = {}) {
@@ -986,51 +1197,70 @@ function Lifeboat(parent, o = {}) {
   const numT = o.num != null ? TX(front, 116, -30, String(o.num), 14, K('#2A3550'), { a: 'middle', w: 800 }) : null;
   /* hooks for the falls */
   [-122, 122].forEach(hx => E('path', { d: `M${hx},${f2(sheer(hx) - 2)} v-12`, stroke: K('#55504A'), 'stroke-width': 2.4 }, front));
-  /* oars: near (in front) and far (behind) */
+  /* oars: near (in front) and far (behind). Drawn in a slight three-quarter view so the looms
+     slope down-aft ("/") between ~18° and ~40°, the blade dips in the drive and lifts, feathered, on recovery */
   const OX = [-55, 50], oars = [];
   const mkOar = (p, far) => { const g2 = G(p); const loom = E('path', { stroke: K(far ? '#A9844F' : '#C99D63'), 'stroke-width': far ? 3.4 : 4.2, 'stroke-linecap': 'round', fill: 'none' }, g2); const blade = E('path', { stroke: K(far ? '#A9844F' : '#D6AC70'), 'stroke-width': far ? 8 : 10, 'stroke-linecap': 'round', fill: 'none' }, g2); return { g: g2, loom, blade, far }; };
   OX.forEach(ox => { oars.push(Object.assign(mkOar(farOars, true), { ox })); });
   const nearOars = G(bobG);
   OX.forEach(ox => { oars.push(Object.assign(mkOar(nearOars, false), { ox })); });
+  /* rowlocks */
+  OX.forEach(ox => E('path', { d: `M${ox - 4},${f2(sheer(ox) - 2)} v-6 h8 v6`, stroke: K('#55504A'), 'stroke-width': 2.2, fill: 'none', 'stroke-linejoin': 'round' }, front));
   const splashG = G(root); const splashes = OX.map(() => E('ellipse', { fill: foamC, 'fill-opacity': 0 }, splashG));
+  const drips = OX.map(() => [0, 1, 2].map(() => E('circle', { r: 2.2, fill: foamC }, splashG)));
   const foamL = E('path', { stroke: foamC, 'stroke-width': 2.2, 'stroke-opacity': .7, fill: 'none', 'stroke-linecap': 'round' }, root);
-  const st = { x: 0, y: 0, s: 1, rot: 0, row: 0, lower: 1, flip: false };
-  let T = 0;
-  const lb = { g: root, root, crew, back, front, seats: [[-95, -6], [-35, -6], [25, -6], [85, -6]], gunwaleY: -46 };
+  const st = { x: 0, y: 0, s: 1, rot: 0, row: 0, lower: 1, flip: false, top: null, drop: null };
+  let T = 0, animSince = false;
+  const lb = { g: root, root, crew, back, front, seats: [[-95, -6], [-35, -6], [25, -6], [85, -6]], gunwaleY: -46, hooks: [[-122, sheer(-122) - 14], [122, sheer(122) - 14]] };
   const drawOars = () => {
-    const ph = ((st.row % 1) + 1) % 1, drive = ph < .5;
-    const sweep = drive ? lerp(1, -1, ease(ph / .5)) : lerp(-1, 1, ease((ph - .5) / .5));
-    const lift = drive ? 0 : Math.sin(Math.PI * (ph - .5) / .5);
-    oars.forEach((oa, i) => {
-      const py = sheer(oa.ox) - (oa.far ? 8 : 0), px = oa.ox;
-      const bx = px + sweep * 58, by = (oa.far ? 8 : 18) - lift * 26;
-      const dx = bx - px, dy = by - py, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
-      const ex = px + ux * 112, ey = py + uy * 112, hx = px - ux * 36, hy = py - uy * 36;
-      oa.loom.setAttribute('d', `M${f2(hx)},${f2(hy)} L${f2(ex)},${f2(ey)}`);
-      oa.blade.setAttribute('d', `M${f2(px + ux * 88)},${f2(py + uy * 88)} L${f2(ex)},${f2(ey)}`);
-    });
+    const ph = ((st.row % 1) + 1) % 1, drive = ph < .5, q = ease(drive ? ph / .5 : (ph - .5) / .5);
+    const reach = drive ? q : 1 - q, lift = drive ? 0 : Math.sin(Math.PI * q);
     const inW = st.lower >= .98;
-    splashes.forEach((sp, i) => { const k = Math.max(0, 1 - Math.min(Math.abs(ph - .02), Math.abs(ph - 1.02)) / .1) + Math.max(0, 1 - Math.abs(ph - .52) / .1);
-      sp.setAttribute('cx', f2(OX[i] + sweep * 64)); sp.setAttribute('cy', 1); sp.setAttribute('rx', f2(8 + k * 8)); sp.setAttribute('ry', f2(2 + k * 2.5)); sp.setAttribute('fill-opacity', f2(inW ? clamp(k) * .8 : 0)); });
+    oars.forEach(oa => {
+      const px = oa.ox + (oa.far ? 12 : 0), py = sheer(oa.ox) - 5 - (oa.far ? 7 : 0);
+      const bx = px - lerp(72, 176, reach), by = (oa.far ? -1 : 6) - lift * 14;
+      const dx = bx - px, dy = by - py, L = Math.hypot(dx, dy), ux = dx / L, uy = dy / L;
+      const hx = px - ux * 34, hy = py - uy * 34, tx = bx + ux * 14, ty = by + uy * 14;
+      oa.loom.setAttribute('d', `M${f2(hx)},${f2(hy)} L${f2(tx)},${f2(ty)}`);
+      oa.blade.setAttribute('d', `M${f2(bx - ux * 20)},${f2(by - uy * 20)} L${f2(tx)},${f2(ty)}`);
+      oa.blade.setAttribute('stroke-width', f2((oa.far ? 8 : 10) * (drive ? 1 : lerp(1, .42, Math.sin(Math.PI * Math.min(1, q * 1.3))))));
+    });
+    splashes.forEach((sp, i) => {
+      const kc = Math.max(0, 1 - Math.min(ph, 1 - ph) / .09), kr = Math.max(0, 1 - Math.abs(ph - .5) / .09), k = Math.max(kc, kr);
+      sp.setAttribute('cx', f2(OX[i] - (kc > kr ? 72 : 176))); sp.setAttribute('cy', 1); sp.setAttribute('rx', f2(9 + k * 9)); sp.setAttribute('ry', f2(2 + k * 3)); sp.setAttribute('fill-opacity', f2(inW ? clamp(k) * .8 : 0));
+      drips[i].forEach((d, j) => { const dq = clamp((ph - .5) / .5 * 1.6 - j * .18); const vis = inW && !drive && dq > 0 && dq < 1;
+        d.setAttribute('cx', f2(OX[i] - lerp(176, 72, ease((ph - .5) / .5)) + 4 - j * 3)); d.setAttribute('cy', f2(-8 + lift * -6 + dq * 12)); op(d, vis ? (1 - dq) * .8 : 0); });
+    });
   };
   lb.set = function (u) {
     if (u) Object.assign(st, u);
-    const fl = st.flip ? -1 : 1;
-    tf(root, st.x, st.y, 0, st.s * fl, st.s);
+    const fl = st.flip ? -1 : 1, s = st.s || 1;
+    tf(root, st.x, st.y, 0, s * fl, s);
     if (numT) numT.setAttribute('transform', st.flip ? 'translate(232,0) scale(-1,1)' : '');
-    const lw = st.lower == null ? 1 : clamp(st.lower), up = (1 - lw) * drop;
-    const jig = (1 - lw) * Math.sin(lw * Math.PI * 5) * 2.2;
+    const lw = st.lower == null ? 1 : clamp(st.lower);
+    /* falls: to fixed points above (build-time drop) or to st.top (two davit heads, parent coords) */
+    let tops = null, dropL = st.drop != null ? st.drop : drop, hang = 0;
+    if (st.top) {
+      tops = st.top.map(p => [(p[0] - st.x) / (s * fl), (p[1] - st.y) / s]).sort((a, b2) => a[0] - b2[0]);
+      dropL = Math.max(0, -Math.min(tops[0][1], tops[1][1]) - 100);
+      hang = Math.atan2(tops[1][1] - tops[0][1], tops[1][0] - tops[0][0]) * 180 / Math.PI * (1 - clamp((lw - .8) / .18));
+    }
+    const up = (1 - lw) * dropL;
+    const jig = (1 - lw) * Math.sin(lw * Math.PI * 5) * 2.2 + hang;
     tf(lowG, 0, -up, jig);
     const inW = lw >= .98;
     op(ropeG, inW ? 0 : 1);
-    if (!inW) [-122, 122].forEach((hx, i) => { const a = Math.PI / 180 * jig, hy = sheer(hx) - 14; const rx = hx * Math.cos(a) - hy * Math.sin(a), ry = hx * Math.sin(a) + hy * Math.cos(a) - up; ropes[i].setAttribute('d', `M${f2(rx)},${f2(ry)} L${hx},${-drop - 140}`); });
+    ropeG.setAttribute('stroke-width', f2(Math.max(2.2, 1.1 / s)));
+    if (!inW) lb.hooks.forEach(([hx, hy], i) => { const a = Math.PI / 180 * jig; const rx = hx * Math.cos(a) - hy * Math.sin(a), ry = hx * Math.sin(a) + hy * Math.cos(a) - up;
+      ropes[i].setAttribute('d', `M${f2(rx)},${f2(ry)} L${f2(tops ? tops[i][0] : hx)},${f2(tops ? tops[i][1] : -dropL - 140)}`); });
     op(nearOars, inW ? 1 : 0); op(farOars, inW ? 1 : 0); op(foamL, inW ? 1 : 0); op(ripB, inW ? 1 : 0);
     tf(bobG, 0, 0, st.rot || 0);
     drawOars();
-    lb.anim(T);
+    if (!animSince) lb.anim(T);
+    animSince = false;
   };
   lb.anim = function (at) {
-    T = at;
+    T = at; animSince = true;
     const inW = (st.lower == null ? 1 : st.lower) >= .98;
     const b = inW ? Math.sin(at * 1.5 + st.x * .01) * 1.6 : 0, r = inW ? Math.sin(at * 1.1 + st.x * .02) * 1.3 : 0;
     tf(bobG, 0, b, (st.rot || 0) + r);
@@ -1045,7 +1275,8 @@ function Lifeboat(parent, o = {}) {
 
 /* =====================================================================
    6) TUGBOAT — cheeky harbour tug, ~250 px long at s=1, bow right.
-   tg = Tugboat(parent, {mood}); tg.set({x,y,s,flip,tow:[px,py]|null (parent coords)}); tg.anim(at)
+   tg = Tugboat(parent, {mood}); tg.set({x,y,s,flip,tow:[px,py]|null (parent coords),
+   wake (0..1 bow wave + stern wash; alias speed, default 1), smoke (0..1)}); tg.anim(at)
    ===================================================================== */
 function Tugboat(parent, o = {}) {
   const K = wldTint(o.mood), mood = o.mood || 'day';
@@ -1098,13 +1329,13 @@ function Tugboat(parent, o = {}) {
   /* towing hook & bitts at the stern */
   E('path', { d: 'M-98,-36 V-50 M-104,-50 H-92 M-112,-35 V-44', stroke: K('#3A3A40'), 'stroke-width': 3.4, 'stroke-linecap': 'round' }, bob);
   /* smoke */
-  const puffs = []; for (let i = 0; i < 7; i++) puffs.push({ g: wldPuff(smokeG, K('#4A4644'), K('#76706A'), K('#363230'), 12), i });
+  const plume = wldPlume(smokeG, { n: 12, r: 13, w: 15, seed: 5.3, rate: .42, rise: 125, drift: 120, cols: [K('#4A4644'), K('#76706A'), K('#363230')], cols2: [K('#5C5754'), K('#87807A'), K('#433E3B')] });
   /* foam */
   const fm = E('path', { stroke: foamC, 'stroke-width': 2.4, 'stroke-opacity': .8, fill: 'none', 'stroke-linecap': 'round' }, root);
-  const bw = E('path', { d: 'M88,4 Q110,2 120,-7 Q127,-13 132,-7 Q138,-1 152,3 Q120,7 88,6 Z', fill: foamC, 'fill-opacity': .85 }, root);
-  const sw = []; for (let i = 0; i < 5; i++) sw.push(E('ellipse', { rx: 10, ry: 3, fill: foamC, 'fill-opacity': .6 }, root));
-  const st = { x: 0, y: 0, s: 1, flip: false, tow: null, speed: 1 };
-  let T = 0, M0 = [1, 0, 0, 1, 0, 0];
+  const bwG = G(root), bw = E('path', { d: 'M88,4 Q110,2 120,-7 Q127,-13 132,-7 Q138,-1 152,3 Q120,7 88,6 Z', fill: foamC, 'fill-opacity': .85 }, bwG);
+  const swG = G(root), sw = []; for (let i = 0; i < 5; i++) sw.push(E('ellipse', { rx: 10, ry: 3, fill: foamC, 'fill-opacity': .6 }, swG));
+  const st = { x: 0, y: 0, s: 1, flip: false, tow: null, speed: 1, wake: null, smoke: 1 };
+  let T = 0, animSince = false;
   const tg = { g: root, root };
   tg.set = function (u) {
     if (u) Object.assign(st, u);
@@ -1114,20 +1345,24 @@ function Tugboat(parent, o = {}) {
       const lx = (st.tow[0] - st.x) / (st.s * fl), ly = (st.tow[1] - st.y) / st.s;
       tow.setAttribute('d', `M-98,-48 Q${f2((-98 + lx) / 2)},${f2(Math.max(-48, ly) + 22)} ${f2(lx)},${f2(ly)}`); op(towG, 1);
     } else op(towG, 0);
-    tg.anim(T);
+    if (!animSince) tg.anim(T);
+    animSince = false;
   };
   tg.anim = function (at) {
-    T = at;
-    const b = Math.sin(at * 2.1 + st.x * .01) * 2, r = Math.sin(at * 1.6 + st.x * .02) * 1.8;
+    T = at; animSince = true;
+    const wk = clamp(st.wake != null ? st.wake : st.speed == null ? 1 : st.speed);
+    const b = Math.sin(at * 2.1 + st.x * .01) * (1.4 + .6 * wk), r = Math.sin(at * 1.6 + st.x * .02) * (1.1 + .7 * wk);
     tf(bob, 0, b, r);
     pen.setAttribute('d', `M60,-160 L${f2(38 + Math.sin(at * 7) * 2)},${f2(-154 + Math.sin(at * 6) * 2)} L60,-150 Z`);
-    const top = wldMx.ap(wldMx.mul(wldMx.tr(0, b), wldMx.rot(r)), -28, -172);
-    puffs.forEach(p => { const ph = (at * .55 + p.i / 7) % 1, pulse = 1 + .35 * Math.max(0, Math.sin(at * 6.2 + p.i * 2.1));
-      tf(p.g, top[0] - ph * 120 + Math.sin(at * 1.3 + p.i) * 5, top[1] - Math.pow(ph, .6) * 110, ph * 60, (.4 + ph * 1.5) * pulse);
-      op(p.g, Math.min(1, ph * 8) * Math.pow(1 - ph, 1.3) * .95); });
-    fm.setAttribute('d', wldFoam(-128, 124, at, 1.6, st.x * .01, 2.5, 8));
-    tf(bw, 0, 0, 0, 1, 1 + .15 * Math.sin(at * 3));
-    sw.forEach((e, i) => { const q = (at * 1.2 + i / 5) % 1; e.setAttribute('cx', f2(-128 - q * 70)); e.setAttribute('cy', f2(3 + (i % 2) * 3)); e.setAttribute('rx', f2(6 + q * 18)); op(e, (1 - q) * .7); });
+    /* chuffing smoke from the funnel mouth (follows the bobbing) */
+    const top = wldMx.ap(wldMx.mul(wldMx.tr(0, b), wldMx.rot(r)), -28, -170);
+    plume.step(at, top[0], top[1], clamp(st.smoke) * (.85 + .15 * Math.sin(at * 6.2)), .7 + .6 * wk);
+    fm.setAttribute('d', wldFoam(-128, 124, at, 1.2 + .6 * wk, st.x * .01, 2.5, 8));
+    op(bwG, wk); op(swG, wk);
+    if (wk > .01) {
+      tf(bw, 0, 0, 0, .55 + .45 * wk, (.4 + .6 * wk) * (1 + .15 * Math.sin(at * 3)));
+      sw.forEach((e, i) => { const q = (at * 1.2 + i / 5) % 1; e.setAttribute('cx', f2(-128 - q * 70 * wk)); e.setAttribute('cy', f2(3 + (i % 2) * 3)); e.setAttribute('rx', f2(6 + q * 18 * wk)); op(e, (1 - q) * .7); });
+    }
   };
   tg.set({});
   return tg;
@@ -1150,16 +1385,17 @@ function Carpathia(parent, o = {}) {
   const clipG = G(root, { 'clip-path': clipRect(-3000, -5000, 6000, 5001) });
   const P = G(clipG);
   /* masts & rigging */
+  /* funnel geometry first (the triatic stay from the foremast ends on it) */
+  const fx = 20, fb = S(fx) - 28, ft = fb - 132, FR2 = -14, FW2 = 21;
+  const shf = y => FR2 * (fb - y) / (fb - ft);
   const MS = [[262, -238], [-92, -224], [-180, -220], [-268, -214]];
   let rd = `M262,-236 L354,-66 M-268,-212 L-352,-60 `;
   MS.forEach(([mx, top], i) => { if (i < 3) rd += `M${mx},${top + 2} L${MS[i + 1] ? MS[i + 1][0] : mx},${MS[i + 1] ? MS[i + 1][1] + 2 : top} `; [-16, 14].forEach(d => { rd += `M${mx - 4},${top + 30} L${mx + d},${f2(S(mx + d))} `; }); });
-  rd += `M262,-236 L80,-140 `;
+  rd += `M260,-232 L${f2(fx + FW2 + shf(ft + 40))},${f2(ft + 40)} `;
   E('path', { d: rd, stroke: K('#4E4A44'), 'stroke-width': 1, fill: 'none' }, P);
   MS.forEach(([mx, top], i) => { E('path', { d: `M${mx - 2.6},${f2(S(mx))} L${mx + 2.6},${f2(S(mx))} L${mx - 4 + 1.2},${top} L${mx - 4 - 1.2},${top} Z`, fill: K('#B98E55') }, P);
     if (i < 2) E('rect', { x: mx - 26, y: top + 34, width: 44, height: 3, rx: 1.4, fill: K('#9E7942') }, P); });
   /* funnel */
-  const fx = 20, fb = S(fx) - 28, ft = fb - 132, FR2 = -14, FW2 = 21;
-  const shf = y => FR2 * (fb - y) / (fb - ft);
   const quad = (l, r, y0, y1) => `M${f2(fx + l + shf(y0))},${f2(y0)} L${f2(fx + r + shf(y0))},${f2(y0)} L${f2(fx + r + shf(y1))},${f2(y1)} L${f2(fx + l + shf(y1))},${f2(y1)} Z`;
   E('path', { d: `M${fx - 60},${f2(fb)} L${f2(fx - FW2 + shf(ft + 40))},${f2(ft + 40)} L${fx + 56},${f2(fb)} M${f2(fx + FW2 + shf(ft + 40))},${f2(ft + 40)} L${fx + 30},${f2(fb)}`, stroke: K('#5E5850'), 'stroke-width': .9, fill: 'none' }, P);
   E('path', { d: quad(-FW2, FW2, fb, ft), fill: K('#D24A2E') }, P);
@@ -1203,28 +1439,27 @@ function Carpathia(parent, o = {}) {
   const name = TX(P, 283, f2(S(283) + 16), 'CARPATHIA', 8.5, K('#EBD38D'), { a: 'middle', w: 800, ls: 1.4 });
   E('path', { d: line(300, 354, -5), stroke: K('#E2DDD2'), 'stroke-width': .8, fill: 'none' }, P);
   /* smoke + wake */
-  const puffs = []; for (let i = 0; i < 14; i++) puffs.push({ g: wldPuff(smokeG, K('#4D4844'), K('#706963'), K('#38332F'), 12), i });
+  const plume = wldPlume(smokeG, { n: 16, r: 14, w: FW2, seed: 2.9, rate: .26, rise: 140, drift: 220, cols: [K('#4D4844'), K('#706963'), K('#38332F')], cols2: [K('#5E5853'), K('#837B74'), K('#45403B')] });
   const bowW = G(wakeG); E('path', { d: 'M-120,3 Q-60,1 -20,-6 Q-4,-15 4,-10 Q10,-4 24,0 Q44,3 60,3 Q20,6 -120,6 Z', fill: foamC, 'fill-opacity': .9 }, bowW);
   const stW = G(wakeG); E('path', { d: 'M4,1 C-100,2 -280,5 -560,8 L-560,20 C-280,14 -100,7 4,5 Z', fill: lgrad([[0, foamC, 0], [1, foamC, .4]], 0, 0, 1, 0) }, stW);
   const trG = lgrad([[0, foamC, 0], [1, foamC, .8]], 0, 0, 1, 0);
   const trail = [[2, 2.6, '36 18 60 24'], [7, 2, '24 22 46 30'], [12, 1.5, '50 26 20 30']].map(([y, wd, da]) => E('path', { d: `M2,${y * .3} C-150,${y * .6} -320,${y} -540,${y * 1.3}`, stroke: trG, 'stroke-width': wd, fill: 'none', 'stroke-linecap': 'round', 'stroke-dasharray': da }, stW));
   const fm = E('path', { stroke: foamC, 'stroke-width': 2, 'stroke-opacity': .75, fill: 'none', 'stroke-linecap': 'round' }, root);
   const st = { x: 0, y: 0, s: 1, flip: false, wake: 0, lights: mood === 'night' ? 1 : mood === 'dawn' ? .6 : 0, smoke: 1 };
-  let T = 0;
-  const cp = { g: root, root };
+  let T = 0, animSince = false;
+  const cp = { g: root, root, funnelTop: () => [st.x + (fx + FR2) * st.s * (st.flip ? -1 : 1), st.y + ft * st.s] };
   cp.set = function (u) {
     if (u) Object.assign(st, u);
     const fl = st.flip ? -1 : 1;
     tf(root, st.x, st.y, 0, st.s * fl, st.s);
     name.setAttribute('transform', st.flip ? `translate(${283 * 2},0) scale(-1,1)` : '');
     lights.forEach((l, i) => l.g.setAttribute('fill', mix(l.dark, i % 2 ? '#FFD27A' : '#FFE3A0', clamp(st.lights))));
-    cp.anim(T);
+    if (!animSince) cp.anim(T);
+    animSince = false;
   };
   cp.anim = function (at) {
-    T = at;
-    puffs.forEach(p => { const ph = (at * .3 + p.i / 14) % 1;
-      tf(p.g, fx + FR2 - ph * 230 + Math.sin(at * 1.2 + p.i) * 6 * ph, ft - 3 - Math.pow(ph, .65) * 120, ph * 50 + p.i * 20, .32 + ph * 1.7);
-      op(p.g, clamp(st.smoke) * Math.min(1, ph * 9) * Math.pow(1 - ph, 1.4) * .92); });
+    T = at; animSince = true;
+    plume.step(at, fx + FR2, ft + 1, clamp(st.smoke), .6 + .5 * clamp(st.wake));
     const wk = clamp(st.wake);
     op(bowW, wk); op(stW, wk);
     if (wk > 0) { tf(bowW, 350, 0, 0, .6 + .4 * wk, 1 + .1 * Math.sin(at * 2.4)); tf(stW, -340, 0, 0, .4 + .6 * wk, 1); trail.forEach((t, i) => t.setAttribute('stroke-dashoffset', f2(at * (110 + i * 25)))); }
@@ -1293,7 +1528,8 @@ function Rocket(parent, o = {}) {
 /* =====================================================================
    9) ICE FLOES — scattered floes bobbing on the sea.
    IceFloes(parent, {x0:-300, w:2200, y:560 (nearest-to-horizon row), y1:900,
-                     n:16, mood:'dawn', seed:3, berg:{x,y,s}|null}) · .anim(at)
+                     n:16, mood:'dawn', seed:3, berg:{x,y,s,reflect}|null}) · .anim(at)
+   g.berg = the static background iceberg group (if berg was given)
    ===================================================================== */
 function IceFloes(parent, o = {}) {
   const mood = o.mood || 'dawn', seed = o.seed || 3;
@@ -1329,7 +1565,7 @@ function IceFloes(parent, o = {}) {
     E('path', { d: 'M8,-160 L34,-112 L58,-124 L84,-58 L104,-50 L126,2 L30,2 L20,-90 Z', fill: PAL[1] }, bg);
     E('path', { d: 'M-42,-118 L-18,-96 L-30,-40 L-60,2 L-80,2 L-56,-60 Z', fill: PAL[3], 'fill-opacity': .5 }, bg);
     E('path', { d: 'M-118,2 H126', stroke: '#FFFFFF', 'stroke-width': 2, 'stroke-opacity': .5 }, bg);
-    fl.berg = bg; }
+    g.berg = bg; }
   fl.sort((a, b) => a.y - b.y).forEach(f => { f.g = G(g); const inner = G(f.g); floeShape(inner, f.W2, f.T2, f.sd); f.inner = inner; });
   g.anim = at => {
     fl.forEach(f => { tf(f.g, f.x + Math.sin(at * .2 + f.ph) * 6 * f.sc, f.y + Math.sin(at * f.fr + f.ph) * 1.8 * f.sc, Math.sin(at * f.fr * .7 + f.ph) * 1.5, f.sc); });

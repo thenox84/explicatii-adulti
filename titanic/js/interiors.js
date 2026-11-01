@@ -1,25 +1,51 @@
 "use strict";
 /* =====================================================================
    INTERIORS — interior sets for the Titanic film (stage 1600 × 900).
-   Every set is  fn(parent, o) → group g  with
+   Every set is  fn(parent, o) → group g, built once, with
      g.anim(at)     ambient motion; call every frame (at = ambient seconds)
-     g.anchors      named points [x, y]; y is the floor where feet stand
-     g.front        (some sets) a SIBLING group that must be drawn OVER the
-                    characters: add the characters, then call g.raiseFront()
-   Everything is drawn a bit beyond 1600 × 900 for camera moves.
-   All helper names start with "itr" (no collisions with other files).
+     g.anchors      named points [x, y]; y = the floor where feet stand
+     g.vignette     the set's soft corner vignette (o.vignette:false = none;
+                    a scene may instead put one itrVignette(p) OUTSIDE its camera)
+     g.fade(o)      fades the set: background + front (sets with g.mid: not the
+                    characters); shipCutaway / bgDeck: everything inside g
+   Character layers (every set except shipCutaway and bgDeck):
+     parent ▸ g (background) ▸ g.mid ▸ g.front ▸ g.over
+     g.mid    characters standing in the set (behind desk / tables / wheel /
+              basket wall, which live in g.front and hide their legs)
+     g.over   characters in front of everything (walkers, close-ups)
+     No raiseFront needed.  The old pattern still works: add characters to
+     parent, then g.raiseFront(before?) (moves front+over to the end of parent,
+     or just before the node `before`, so later titles stay on top).
+   Everything is drawn well beyond 1600 × 900 for camera moves.
+   Deterministic (hash only), no SVG filters.  Helpers start with "itr".
    ===================================================================== */
 
 /* ---------- small shared helpers ---------- */
 function itrClip(d) { const id = uid('ic'); const cp = E('clipPath', { id }, DEFS); E('path', { d }, cp); return 'url(#' + id + ')'; }
+/* soft corner darkening centred on the 1600×900 frame (public: scenes may
+   also call it on a screen-space group).  The gradient is in user space and
+   the rect is huge, so zooming out or panning never shows a hard edge.
+   k = strength at the corners, cy = vertical centre (fraction of 900). */
 function itrVignette(p, k = .45, cy = .45) {
-  return E('rect', { x: -200, y: -200, width: 2000, height: 1300, fill: rgrad([[0, '#000', 0], [.66, '#000', 0], [1, '#000', k]], .5, cy, .75), 'pointer-events': 'none' }, p);
+  const id = uid('vg'), Y = -200 + 1300 * cy;
+  const gr = E('radialGradient', { id, gradientUnits: 'userSpaceOnUse', cx: 800, cy: f2(Y), r: 1500, gradientTransform: `translate(0 ${f2(Y)}) scale(1 .65) translate(0 ${f2(-Y)})` }, DEFS);
+  [[0, 0], [.66, 0], [1, k]].forEach(([o, a]) => E('stop', { offset: o, 'stop-color': '#000', 'stop-opacity': a }, gr));
+  return E('rect', { x: -1400, y: -1100, width: 4400, height: 3100, fill: 'url(#' + id + ')', 'pointer-events': 'none' }, p);
 }
 function itrGlow(p, cx, cy, rx, ry, col, a = .5) { return E('ellipse', { cx, cy, rx, ry, fill: rgrad([[0, col, a], [.45, col, a * .45], [1, col, 0]]) }, p); }
+/* sibling layers of a set inside `parent`:  g ▸ g.mid ▸ g.front ▸ g.over
+   g.mid   characters that stand IN the set (drawn under g.front, no raiseFront needed)
+   g.front foreground pieces of the set (desk, basket wall, wheel, tables…)
+   g.over  characters that pass IN FRONT of g.front (walkers, close-ups)
+   g.raiseFront(before?) moves front+over to the end of parent (or just before
+   the node `before`), for scenes that added characters to parent directly. */
 function itrFront(g, parent) {
-  g.front = G(parent);
-  g.raiseFront = () => { if (g.front.parentNode) g.front.parentNode.appendChild(g.front); };
+  g.mid = G(parent); g.front = G(parent); g.over = G(parent);
+  g.raiseFront = before => { const p = g.front.parentNode; if (!p) return; const ref = before && before.parentNode === p ? before : null; p.insertBefore(g.front, ref); p.insertBefore(g.over, ref); };
+  g.fade = o => { op(g, o); op(g.front, o); };
 }
+/* write an attribute only when its value changed (cheap per-frame updates) */
+function itrSet(n, k, v) { if (n['_' + k] !== v) { n['_' + k] = v; n.setAttribute(k, v); } }
 /* starfield; stars twinkle in 6 groups (cheap) */
 function itrStars(p, x, y, w, h, n, seed = 1, o = {}) {
   const g = G(p); const grp = [0, 1, 2, 3, 4, 5].map(() => G(g));
@@ -130,7 +156,10 @@ function itrCageLamp(p, x, y, L = 60, s = 1, col = '#FFD27A') {
 function itrSmoke(p, x, y, o = {}) {
   const g = G(p); const n = o.n || 7, col = o.col || '#5D5862', ps = [];
   for (let i = 0; i < n; i++) { const q = G(g);
-    E('circle', { r: 10, fill: col }, q); E('circle', { cx: 7, cy: 3, r: 7.5, fill: shade(col, -.12) }, q); E('circle', { cx: -4, cy: -4, r: 6.5, fill: shade(col, .16) }, q); ps.push(q); }
+    E('circle', { r: 10, fill: col }, q);
+    if (o.lit) { E('circle', { cx: 4, cy: -4, r: 7.5, fill: shade(col, -.1) }, q); E('ellipse', { cx: -1, cy: 4, rx: 8.5, ry: 6, fill: o.lit, 'fill-opacity': .55 }, q); }
+    else { E('circle', { cx: 7, cy: 3, r: 7.5, fill: shade(col, -.12) }, q); E('circle', { cx: -4, cy: -4, r: 6.5, fill: shade(col, .16) }, q); }
+    ps.push(q); }
   const sp = o.speed || .11, dx = o.dx || -260, dy = o.dy || -150, gr = o.grow || 3, sd = o.seed || 0;
   g.anim = at => ps.forEach((q, i) => { const ph = (at * sp + i / n + sd) % 1;
     tf(q, x + dx * ph + Math.sin(at * .8 + i * 2) * 8 * ph, y + dy * Math.pow(ph, .65), 0, 1 + ph * gr);
@@ -183,23 +212,25 @@ function itrPlaque(p, x, y, text, o = {}) {
 }
 
 /* =====================================================================
-   1) shipCutaway(parent, o) — the "layer cake": the ship in side view,
-      hull cut open.  o.sky: 'dusk' (default) | 'day' | 'night'
-      o.labels: false hides the plaques.
-   Returns g with:
-     g.anim(at)
-     g.focus(name, k)   dim every layer except `name` (k 0..1); name null = none
-                        names: 'boat' | 'first' | 'second' | 'third' | 'boiler'
-     g.signs            { first, second, third, boiler, engine } plaques (N-groups,
-                        usable with show(node, t, tIn, tOut, {pop:1}))
-     g.layers           { name: [x0, y0, x1, y1] } box of every layer
-     g.anchors = {
-       boat:   { floor:213, x:[90,1540] },                     (character scale ≈ .14)
-       first:  { floor:370, x:[70,1545], bath, stairs, lounge, pool:[x,y] }   (scale ≈ .30)
-       second: { floor:500, x:[60,1555], dining, library, cabins }           (scale ≈ .27)
-       third:  { floor:630, x:[55,1555], dance, dining, cabins }             (scale ≈ .27)
-       boiler: { floor:855, x:[170,1500], engine, catwalk:[x,y], stokers:[[x,y]×6] } (scale ≈ .42)
-     }
+   1) shipCutaway(parent, o) — the "layer cake": the ship in side view, hull
+      cut open (bow to the right).  o.sky: 'dusk' (default) | 'day' | 'night'
+      o.labels: false starts with every plaque hidden (each one can still be
+      brought in with show(g.signs.x, t, tIn, tOut, {pop:1}));  o.vignette: false
+   g.rooms            { boat, first, second, third, boiler }: one group per layer,
+                      clipped to its rooms and dimmed by focus() — put characters here
+   g.focus(name, k)   dim everything except layer `name` by k 0..1 (null = none)
+   g.signs            { first, second, third, engine, boiler } plaques (N-groups)
+   g.layers           { name: [x0, y0, x1, y1] } box of every layer
+   g.fade(o)
+   g.anchors  (scale = Human scale that fits the room height)
+     boat:   { floor:213, x:[90,1490], scale:.14 }
+     first:  { floor:370, x:[70,1545], scale:.30, bath:[250,370], stairs:[610,370], lounge:[930,370], pool:[1330,370] }
+     second: { floor:500, x:[60,1555], scale:.27, dining:[380,500], library:[800,500], cabins:[1130,500] }
+     third:  { floor:630, x:[55,1555], scale:.27, dance:[440,630], dining:[850,630], cabins:[1130,630] }
+     boiler: { floor:855, x:[170,1500], scale:.42, engine:[400,855],
+               catwalk:[300,800], catwalkX:[215,590]  (grating in front of the cranks; same .42 scale),
+               stokers:[[668,855],[808,855],[976,855],[1116,855],[1276,855],[1416,855]]  (left of each boiler),
+               stokerFace:[1,1,1,1,1,1]  (+1 = the furnace is to his right) }
    ===================================================================== */
 function shipCutaway(parent, o = {}) {
   const g = G(parent), A = [];
@@ -210,26 +241,31 @@ function shipCutaway(parent, o = {}) {
   const winSky = { day: [[0, '#79BDE8'], [1, '#CFEAF5']], dusk: [[0, '#7A64A0'], [1, '#F2A27E']], night: [[0, '#0B1230'], [1, '#26305A']] }[mode];
 
   /* ---------- sky, clouds, sea ---------- */
-  E('rect', { x: -300, y: -300, width: 2200, height: 960, fill: lgrad(SKY) }, g);
-  if (night) { const st = itrStars(g, -300, -200, 2200, 560, 260, 4); A.push(st.anim); }
+  E('rect', { x: -1400, y: -1200, width: 4400, height: 1860, fill: SKY[0][1] }, g);
+  E('rect', { x: -1400, y: -300, width: 4400, height: 960, fill: lgrad(SKY) }, g);
+  if (night) { const st = itrStars(g, -300, -200, 2200, 560, 260, 4); A.push(st.anim); itrStars(g, -1400, -1100, 4400, 1300, 220, 9, { glint: false }); }
   const clouds = [];
   if (!night) for (let i = 0; i < 5; i++) { const c = G(g), cw = 120 + hash(i + 3) * 120;
     [[0, 0, cw * .32], [cw * .28, -12, cw * .26], [cw * .55, 2, cw * .2], [-cw * .25, 6, cw * .2]].forEach(([cx, cy, r]) => E('ellipse', { cx, cy, rx: r, ry: r * .42, fill: mode === 'day' ? '#FFFFFF' : '#FFD2C0', 'fill-opacity': mode === 'day' ? .8 : .5 }, c));
     clouds.push({ c, y: 30 + hash(i + 7) * 90, sp: 5 + hash(i) * 6, off: hash(i + 1) * 2000 }); }
-  E('rect', { x: -300, y: 640, width: 2200, height: 600, fill: lgrad(SEA) }, g);
+  E('rect', { x: -1400, y: 640, width: 4400, height: 1400, fill: lgrad(SEA) }, g);
   const waves = G(g); const wv = [];
   for (let k = 0; k < 2; k++) { let d = ''; for (let i = 0; i < 70; i++) { const x = -300 + i * 34; d += `M${x},${652 + k * 26 + (i % 3) * 6} q8,-5 16,0 `; }
     wv.push(E('path', { d, stroke: '#fff', 'stroke-opacity': night ? .12 : .22, 'stroke-width': 2, fill: 'none' }, waves)); }
 
   /* ---------- hull outline ---------- */
   const H = 'M36,215 L1574,215 L1559,650 Q1552,846 1452,872 L272,872 Q192,872 164,836 L142,692 Q74,690 52,612 Q33,470 36,215 Z';
-  /* rudder + centre propeller (outside the hull) */
-  E('path', { d: 'M114,698 L84,706 Q74,786 80,862 L116,866 Z', fill: '#8E2E29' }, g);
-  E('path', { d: 'M98,702 L84,706 Q74,786 80,862 L98,864 Z', fill: '#000', 'fill-opacity': .2 }, g);
-  E('path', { d: 'M116,720 h8 M116,780 h8 M116,840 h8', stroke: '#5A1E1A', 'stroke-width': 4 }, g);
-  const prop = G(g); tf(prop, 132, 806);
+  /* stern frame: rudder hung on its post under the counter, sole piece from
+     the keel to the rudder heel, centre propeller in the aperture */
+  E('path', { d: 'M206,862 Q160,866 112,864 L110,873 Q160,875 208,871 Z', fill: '#7A2622' }, g);
+  E('rect', { x: 113, y: 668, width: 9, height: 30, fill: '#5A1E1A' }, g);
+  E('path', { d: 'M122,686 L122,868 L90,870 Q76,800 80,722 Q84,696 122,686 Z', fill: '#8E2E29' }, g);
+  E('path', { d: 'M101,690 Q84,700 80,722 Q76,800 90,870 L101,869 Z', fill: '#000', 'fill-opacity': .2 }, g);
+  E('rect', { x: 117, y: 686, width: 6, height: 182, fill: '#B8453E' }, g);
+  E('path', { d: 'M114,724 h11 M114,782 h11 M114,840 h11', stroke: '#5A1E1A', 'stroke-width': 4 }, g);
+  const prop = G(g); tf(prop, 141, 806);
   E('ellipse', { cx: 0, cy: -24, rx: 9, ry: 26, fill: '#C79A4A' }, prop); E('ellipse', { cx: 0, cy: 24, rx: 9, ry: 26, fill: '#A87E36' }, prop); E('circle', { r: 8, fill: '#8A6526' }, prop);
-  const I = G(g, { 'clip-path': itrClip(H) });
+  const hullClip = itrClip(H), I = G(g, { 'clip-path': hullClip });
   E('rect', { x: 0, y: 200, width: 1600, height: 700, fill: '#2A2427' }, I);
 
   /* slabs (decks) */
@@ -284,7 +320,14 @@ function shipCutaway(parent, o = {}) {
   E('path', { d: 'M398,330 V270 Q398,256 420,254 Q442,256 442,270 V330 Z', fill: '#A3703F' }, I);
   E('circle', { cx: 420, cy: 280, r: 13, fill: '#F6EED8' }, I); E('circle', { cx: 420, cy: 280, r: 13, fill: 'none', stroke: '#C9A045', 'stroke-width': 2.5 }, I);
   E('path', { d: 'M420,280 V271 M420,280 L426,284', stroke: '#2B2B35', 'stroke-width': 1.8, 'stroke-linecap': 'round' }, I);
-  E('path', { d: 'M402,312 Q410,298 420,306 Q430,298 438,312 Q430,320 420,316 Q410,320 402,312 Z', fill: '#7A4E2A' }, I);
+  /* the carving: two robed figures (Honour and Glory) crowning the clock, laurel swag between */
+  [-1, 1].forEach(s => { const fx = 420 + s * 11;
+    E('path', { d: `M${fx - 5},328 Q${fx - 5},312 ${fx},305 Q${fx + 5},312 ${fx + 5},328 Z`, fill: '#6E4426' }, I);
+    E('path', { d: `M${fx - s * 1},307 Q${fx - s * 4},299 ${fx - s * 6},294`, stroke: '#6E4426', 'stroke-width': 2.4, fill: 'none', 'stroke-linecap': 'round' }, I);
+    E('circle', { cx: fx, cy: 301, r: 3.6, fill: '#7E5230' }, I); E('circle', { cx: fx - 1, cy: 300, r: 1.5, fill: '#C79A62' }, I);
+    E('path', { d: `M${fx - 2},309 Q${fx - 3},318 ${fx - 2},326`, stroke: '#C79A62', 'stroke-width': 1.2, fill: 'none', 'stroke-opacity': .8 }, I); });
+  E('path', { d: 'M412,316 Q420,324 428,316', stroke: '#5E3A20', 'stroke-width': 2.2, fill: 'none' }, I);
+  { let d = ''; [[413, 318], [416, 321], [420, 322], [424, 321], [427, 318]].forEach(([x, y]) => d += `M${x},${y} m-1.6,0 a1.6,1.6 0 1 0 3.2,0 a1.6,1.6 0 1 0 -3.2,0 `); E('path', { d, fill: '#8EA05A' }, I); }
   /* the stairs: rise from (708,FF) up-left into the opening */
   { let d = `M716,${FF}`, x = 716, y = FF; for (let i = 0; i < 12; i++) { d += ` V${y - 11.5} H${x - 17}`; y -= 11.5; x -= 17; } d += ` L${x - 20},${y} L560,${FF + 4} Z`;
     E('path', { d, fill: '#8E5E33' }, I);
@@ -292,17 +335,20 @@ function shipCutaway(parent, o = {}) {
     E('path', { d: c, stroke: '#A8322F', 'stroke-width': 4, fill: 'none' }, I);
     E('path', { d: `M712,${FF - 2} L${x + 4},${y - 2}`, stroke: '#6E4426', 'stroke-width': 7, 'stroke-opacity': .5 }, I); }
   /* balustrade: iron scrolls + oak handrail */
-  { let d = ''; for (let i = 0; i < 12; i++) { const bx = 706 - i * 17, by = FF - 8 - i * 11.5; d += `M${bx},${by} q-6,-10 0,-18 q6,-8 0,-16 M${bx - 8},${by - 2} q5,-10 0,-17 `; }
+  { let d = ''; for (let i = 0; i < 12; i++) { const bx = 706 - i * 17, by = FF - 8 - i * 11.5, top = FF - 53.5 - 11.07 * i, h = by - top, top2 = top - 5.2, h2 = by - 2 - top2;
+      d += `M${bx},${f2(by)} q-6,${f2(-h * .28)} 0,${f2(-h * .5)} q6,${f2(-h * .22)} 0,${f2(-h * .5)} M${bx - 8},${f2(by - 2)} q5,${f2(-h2 * .3)} 0,${f2(-h2 * .55)} q-4,${f2(-h2 * .2)} 0,${f2(-h2 * .45)} `; }
     E('path', { d, stroke: '#2E2522', 'stroke-width': 1.8, fill: 'none' }, I);
     let dg = ''; for (let i = 0; i < 12; i++) dg += `M${704 - i * 17},${FF - 22 - i * 11.5} m-2,0 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 `; E('path', { d: dg, fill: '#E2BE62' }, I);
     E('path', { d: `M724,${FF - 44} L${716 - 12 * 17 - 6},${FF - 44 - 12 * 11.5 - 4}`, stroke: '#7A4A26', 'stroke-width': 5, 'stroke-linecap': 'round' }, I); }
   /* newel post + cherub lamp */
   E('rect', { x: 718, y: FF - 52, width: 12, height: 52, fill: '#7A4A26' }, I); E('rect', { x: 716, y: FF - 56, width: 16, height: 6, rx: 2, fill: '#8E5E33' }, I);
   { const ch = G(I); tf(ch, 724, FF - 56);
-    itrGlow(ch, 4, -34, 40, 34, '#FFE2A0', .55);
-    E('ellipse', { cx: 0, cy: -10, rx: 5, ry: 8, fill: '#6E5A3A' }, ch); E('circle', { cx: 0, cy: -22, r: 4.5, fill: '#7E6844' }, ch);
-    E('path', { d: 'M-3,-14 Q-12,-20 -10,-8 Z', fill: '#8E7A52' }, ch); E('path', { d: 'M2,-16 L6,-30', stroke: '#6E5A3A', 'stroke-width': 2.5, 'stroke-linecap': 'round' }, ch);
-    E('circle', { cx: 6, cy: -34, r: 4, fill: '#FFF2C4' }, ch); }
+    itrGlow(ch, 6, -34, 52, 44, '#FFE2A0', .75);
+    E('path', { d: 'M-3,-15 Q-15,-24 -12,-7 Q-7,-11 -3,-10 Z', fill: '#D8B57A' }, ch);
+    E('ellipse', { cx: 0, cy: -10, rx: 5.5, ry: 8.5, fill: '#B08A50' }, ch); E('ellipse', { cx: -2, cy: -12, rx: 1.8, ry: 4.5, fill: '#E2C285' }, ch);
+    E('path', { d: 'M2,-16 L6.5,-31', stroke: '#B08A50', 'stroke-width': 2.8, 'stroke-linecap': 'round' }, ch);
+    E('circle', { cx: 0, cy: -23, r: 5, fill: '#BE9A5E' }, ch); E('circle', { cx: -1.6, cy: -24.6, r: 2, fill: '#ECD29C' }, ch);
+    E('circle', { cx: 6.5, cy: -35, r: 6, fill: '#FFF0C0', 'fill-opacity': .6 }, ch); E('circle', { cx: 6.5, cy: -35, r: 3.8, fill: '#FFFDF0' }, ch); }
   wall(357, 722, 362, F1, '#E9DFC9'); { let d = ''; for (let x = 357; x < 722; x += 14) d += `M${x},362 h7 v6.5 h-7 Z M${x + 7},368.5 h7 v6.5 h-7 Z`; E('path', { d, fill: '#2E2A2C' }, I); }
   { const pl = itrPalm(I, 382, FF, .32, 2); A.push(pl.anim); }
   ceilShade(357, 722, F0 + 12, 12, .2);
@@ -511,7 +557,7 @@ function shipCutaway(parent, o = {}) {
   E('rect', { x: 620, y: B0 + 24, width: 930, height: 5, rx: 2, fill: '#B5653A' }, I);
   /* cylinders (lagged, domed covers) */
   const CX = [262, 357, 452, 547];
-  E('rect', { x: 206, y: 678, width: 392, height: 7, fill: '#3E4646' }, I); itrRail(I, 206, 598, 678, 12, '#7A8088', 14, 1.5);
+  E('rect', { x: 206, y: 680, width: 392, height: 5, fill: '#3E4646' }, I);
   CX.forEach((cx, i) => { const cw = i === 0 ? 62 : i === 3 ? 92 : 78, top = 690;
     E('rect', { x: cx - cw / 2, y: top, width: cw, height: 50, rx: 4, fill: '#5A6664' }, I);
     let d = ''; for (let x = cx - cw / 2 + 7; x < cx + cw / 2; x += 7) d += `M${x},${top + 4} V${top + 48} `; E('path', { d, stroke: '#4E5A58', 'stroke-width': 1.5 }, I);
@@ -535,23 +581,34 @@ function shipCutaway(parent, o = {}) {
   const eGauges = [702, 730, 758].map(y => { E('circle', { cx: 614, cy: y, r: 10, fill: '#C9A045' }, I); E('circle', { cx: 614, cy: y, r: 7.5, fill: '#FBF7EE' }, I);
     const nd = E('path', { d: 'M0,0 V-6', stroke: '#C0392B', 'stroke-width': 1.8, 'stroke-linecap': 'round' }, I); return { nd, y }; });
   { const l = itrCageLamp(I, 176, B0, 34, .6); lanterns.push(l); }
+  /* starting-platform catwalk (grating + handrail + ladder) in front of the cranks */
+  E('rect', { x: 206, y: 800, width: 392, height: 6, fill: '#4A5454' }, I); E('rect', { x: 206, y: 800, width: 392, height: 2, fill: '#8A9498' }, I);
+  { let d = ''; for (let x = 210; x < 598; x += 7) d += `M${x},801 v4 `; E('path', { d, stroke: '#2E3434', 'stroke-width': 1.2 }, I); }
+  itrRail(I, 206, 598, 800, 22, '#9AA2A8', 26, 1.8);
+  E('path', { d: 'M196,800 V855 M210,800 V855', stroke: '#7A8088', 'stroke-width': 2.4 }, I);
+  { let d = ''; for (let y = 808; y < 855; y += 9) d += `M196,${y} H210 `; E('path', { d, stroke: '#7A8088', 'stroke-width': 2 }, I); }
   wall(140, 640, 846, B1, '#2C2628');
   part(640, B0, B1, 14);
   E('rect', { x: 644, y: 790, width: 6, height: 60, fill: '#1E1A1C' }, I);
   /* --- boiler rooms (654..1575) --- */
-  const furn = [], stokers = [], bGauges = [], heaps = [];
+  const furn = [], stokers = [], bxs = [], bGauges = [], heaps = [];
   [[654, 950], [962, 1250], [1262, 1600]].forEach(([x0, x1], ri) => {
     if (ri) part(x0 - 12, B0, B1, 12);
     [x0 + 78, x0 + 218].forEach((bx, k) => { if (bx > 1520) return;
       const cy = 760, r = 62;
       E('path', { d: `M${bx - 26},${B0 + 30} H${bx + 26} L${bx + 40},${cy - r + 6} H${bx - 40} Z`, fill: '#2E2A2C' }, I);
       E('rect', { x: bx - 46, y: cy + r - 14, width: 92, height: BF - (cy + r - 14), fill: '#2A2426' }, I);
-      E('circle', { cx: bx, cy, r: r + 4, fill: '#2E2A2C' }, I);
-      E('circle', { cx: bx, cy, r, fill: '#57504F' }, I);
-      E('path', { d: `M${bx - r},${cy} A${r},${r} 0 0 0 ${bx + r},${cy} Z`, fill: '#4A4344' }, I);
-      E('circle', { cx: bx, cy, r, fill: lgrad([[0, '#FF8A3A', 0], [.55, '#FF8A3A', 0], [1, '#FF8A3A', .3]]) }, I);
-      E('circle', { cx: bx, cy, r: r - 6, fill: 'none', stroke: '#6B6362', 'stroke-width': 2, 'stroke-dasharray': '1.5 6' }, I);
-      E('path', { d: `M${bx - r * .7},${cy - r * .55} A${r * .9},${r * .9} 0 0 1 ${bx + r * .2},${cy - r * .88}`, stroke: '#7A7270', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round' }, I);
+      /* steel boiler end: flat plates, lap seams and rivet rows (no glassy shine) */
+      E('circle', { cx: bx, cy, r: r + 4, fill: '#24272B' }, I);
+      E('circle', { cx: bx, cy, r, fill: '#4A5056' }, I);
+      E('path', { d: `M${bx - r * .8},${f2(cy - r * .6)} A${r},${r} 0 0 1 ${bx + r * .8},${f2(cy - r * .6)} Z`, fill: '#555C62' }, I);
+      E('path', { d: `M${bx - r},${cy + 4} A${r},${r} 0 0 0 ${bx + r},${cy + 4} Z`, fill: '#3F4449' }, I);
+      E('circle', { cx: bx, cy, r, fill: lgrad([[0, '#FF8A3A', 0], [.6, '#FF8A3A', 0], [1, '#FF8A3A', .22]]) }, I);
+      E('circle', { cx: bx, cy, r: r - 5, fill: 'none', stroke: '#33373B', 'stroke-width': 2 }, I);
+      E('path', { d: `M${bx - r * .8},${f2(cy - r * .6)} H${bx + r * .8}`, stroke: '#33373B', 'stroke-width': 2 }, I);
+      { let rv = ''; for (let k = 0; k < 30; k++) { const a = k / 30 * Math.PI * 2; rv += `M${f2(bx + Math.cos(a) * (r - 9))},${f2(cy + Math.sin(a) * (r - 9))} m-1.3,0 a1.3,1.3 0 1 0 2.6,0 a1.3,1.3 0 1 0 -2.6,0 `; }
+        for (let x = bx - r * .74; x < bx + r * .75; x += 6.5) rv += `M${f2(x)},${f2(cy - r * .6 + 4)} m-1.2,0 a1.2,1.2 0 1 0 2.4,0 a1.2,1.2 0 1 0 -2.4,0 `;
+        E('path', { d: rv, fill: '#2E3236' }, I); }
       /* gauge */
       E('circle', { cx: bx + 30, cy: cy - 36, r: 9, fill: '#C9A045' }, I); E('circle', { cx: bx + 30, cy: cy - 36, r: 6.5, fill: '#FBF7EE' }, I);
       bGauges.push({ nd: E('path', { d: 'M0,0 V-5', stroke: '#C0392B', 'stroke-width': 1.6, 'stroke-linecap': 'round' }, I), x: bx + 30, y: cy - 36, ph: hash(bx) * 6 });
@@ -563,13 +620,13 @@ function shipCutaway(parent, o = {}) {
         E('rect', { x: fx - 9, y: fy - 1, width: 18, height: 2, fill: '#FFE07A' }, I);
         const gl = itrGlow(I, fx, fy + 6, 40, 30, '#FF9A3A', .7);
         furn.push({ hot, gl, ph: hash(fx * .37) * 9 }); });
-      stokers.push([bx, BF]);
+      stokers.push([bx - 64, BF]); bxs.push(bx);
     });
     heaps.push(x0);
     { const l = itrCageLamp(I, x0 + 148, B0 + 29, 18, .6, '#FFD27A'); lanterns.push(l); }
   });
   wall(654, 1600, 846, B1, '#2C2628');
-  stokers.forEach(([bx], i) => { const fl = itrGlow(I, bx, BF - 4, 100, 18, '#FF8A2A', .55); furn.push({ hot: null, gl: fl, ph: i * 1.7 }); });
+  bxs.forEach((bx, i) => { const fl = itrGlow(I, bx, BF - 4, 100, 18, '#FF8A2A', .55); furn.push({ hot: null, gl: fl, ph: i * 1.7 }); });
   heaps.forEach((x0, ri) => {
     /* coal heaps + shovel */
     const hx = x0 + 148; let d = `M${hx - 56},${BF + 2} Q${hx - 34},${BF - 40} ${hx},${BF - 44} Q${hx + 34},${BF - 40} ${hx + 56},${BF + 2} Z`; E('path', { d, fill: '#1C191B' }, I);
@@ -583,29 +640,33 @@ function shipCutaway(parent, o = {}) {
 
   /* =================== BOAT DECK (above 215) =================== */
   const D = G(g);
-  /* masts + stays */
-  [[70, -80, 60], [1540, -80, 1560]].forEach(([mx, my]) => { E('path', { d: `M${mx},215 L${mx - 4},${my}`, stroke: '#B78A4A', 'stroke-width': 9 }, D); E('path', { d: `M${mx + 2},215 L${mx - 2},${my}`, stroke: '#D6A866', 'stroke-width': 3 }, D); });
-  E('path', { d: 'M1536,-40 L1420,215 M1536,-40 L1580,215 M66,-40 L190,215 M66,-40 L36,215', stroke: '#2E2A2E', 'stroke-width': 1.3, 'stroke-opacity': .6 }, D);
-  /* crow's nest */
-  E('path', { d: 'M1520,58 H1556 L1552,84 H1524 Z', fill: '#B78A4A' }, D); E('rect', { x: 1518, y: 55, width: 40, height: 5, rx: 2, fill: '#D6A866' }, D);
-  if (night) itrGlow(D, 1538, 60, 22, 14, '#FFE7A8', .4);
-  /* funnels */
-  const FUN = [380, 680, 980, 1280], smokes = [];
-  FUN.forEach(fx => E('path', { d: `M${fx - 14},30 L${fx - 130},150 M${fx - 14},30 L${fx + 110},150`, stroke: '#2E2A2E', 'stroke-width': 1, 'stroke-opacity': .45 }, D));
-  FUN.forEach((fx, i) => { const top = 22, base = 152, dx = -14, w = 37;
+  const BRX = 1330, WELL = 1432, FC = 1498;   /* bridge BRX..WELL, open well deck WELL..FC, raised forecastle FC..stem */
+  /* masts (the foremast stands on the well deck, ahead of the bridge) + stays */
+  [[70, -80], [1468, -80]].forEach(([mx, my]) => { E('path', { d: `M${mx},215 L${mx - 4},${my}`, stroke: '#B78A4A', 'stroke-width': 9 }, D); E('path', { d: `M${mx + 2},215 L${mx - 2},${my}`, stroke: '#D6A866', 'stroke-width': 3 }, D); });
+  E('path', { d: 'M1465,-40 L1362,128 M1465,-40 L1579,193 M1466,-10 L1530,196 M66,-40 L190,215 M66,-40 L36,215', stroke: '#2E2A2E', 'stroke-width': 1.3, 'stroke-opacity': .6 }, D);
+  /* crow's nest on the foremast */
+  E('path', { d: 'M1448,62 H1484 L1480,88 H1452 Z', fill: '#B78A4A' }, D); E('rect', { x: 1446, y: 59, width: 40, height: 5, rx: 2, fill: '#D6A866' }, D);
+  E('path', { d: 'M1466,62 V88 L1480,88 L1484,62 Z', fill: '#000', 'fill-opacity': .15 }, D);
+  if (night) itrGlow(D, 1466, 64, 22, 14, '#FFE7A8', .4);
+  /* funnels (shorter, so their smoke has room inside the frame) */
+  const FUN = [380, 680, 980, 1280], smokes = [], FT = 62, FB = 152, FW = 34, FDX = -11;
+  const SMK = mode === 'day' ? '#6E6A72' : mode === 'dusk' ? '#4A4054' : '#8A8292', SLIT = mode === 'day' ? null : mode === 'dusk' ? '#E09A86' : '#C9AA8E';
+  FUN.forEach(fx => E('path', { d: `M${fx + FDX},${FT + 8} L${fx - 118},${FB} M${fx + FDX},${FT + 8} L${fx + 98},${FB}`, stroke: '#2E2A2E', 'stroke-width': 1, 'stroke-opacity': .45 }, D));
+  FUN.forEach((fx, i) => { const top = FT, base = FB, dx = FDX, w = FW, bk = 26, kb = 1 - bk / (base - top);
     E('path', { d: `M${fx - w},${base} L${fx - w + dx},${top} L${fx + w + dx},${top} L${fx + w},${base} Z`, fill: '#D99A3E' }, D);
     E('path', { d: `M${fx + w * .35},${base} L${fx + w * .35 + dx},${top} L${fx + w + dx},${top} L${fx + w},${base} Z`, fill: '#B97E2C' }, D);
     E('path', { d: `M${fx - w * .6},${base} L${fx - w * .6 + dx},${top}`, stroke: '#F2C070', 'stroke-width': 5, 'stroke-opacity': .7 }, D);
-    E('path', { d: `M${fx - w + dx * .76},${top + 34} L${fx - w + dx},${top} L${fx + w + dx},${top} L${fx + w + dx * .76},${top + 34} Z`, fill: '#1E1C20' }, D);
+    E('path', { d: `M${f2(fx - w + dx * kb)},${top + bk} L${fx - w + dx},${top} L${fx + w + dx},${top} L${f2(fx + w + dx * kb)},${top + bk} Z`, fill: '#1E1C20' }, D);
     E('path', { d: `M${fx - w + dx},${top} H${fx + w + dx}`, stroke: '#3A363C', 'stroke-width': 4 }, D);
-    E('path', { d: `M${fx + w + 3},${base} L${fx + w + 3 + dx * .8},${top + 30}`, stroke: '#C9A045', 'stroke-width': 3 }, D);
+    E('path', { d: `M${fx + w + 3},${base} L${f2(fx + w + 3 + dx * .8)},${top + 22}`, stroke: '#C9A045', 'stroke-width': 3 }, D);
     E('rect', { x: fx - w - 8, y: base - 10, width: w * 2 + 16, height: 10, rx: 3, fill: '#CBBFA6' }, D);
-    if (i > 0) { const sm = itrSmoke(D, fx + dx, top - 4, { n: 7, seed: i * .31, col: mode === 'day' ? '#7E7A82' : mode === 'dusk' ? '#6A6278' : '#4A4552', a: .5, dx: -360, dy: -30, grow: 2.2, speed: .1 }); smokes.push(sm); A.push(sm.anim); } });
+    /* the aft funnel (i = 0) was a dummy ventilator: no smoke */
+    if (i > 0) { const sm = itrSmoke(D, fx + dx, top - 3, { n: 8, seed: i * .31, col: SMK, lit: SLIT, a: night ? .72 : .62, dx: -380, dy: -24, grow: 2.4, speed: .09 }); smokes.push(sm); A.push(sm.anim); } });
   /* deckhouse */
-  E('rect', { x: 210, y: 152, width: 1230, height: 63, fill: '#EFE9DC' }, D);
-  E('rect', { x: 206, y: 148, width: 1238, height: 6, rx: 2, fill: '#D8CFBC' }, D);
-  E('rect', { x: 210, y: 200, width: 1230, height: 15, fill: '#000', 'fill-opacity': .07 }, D);
-  { let d = ''; for (let x = 222; x < 1430; x += 22) { if (x > 466 && x < 624) continue; d += `M${x},170 h9 v12 h-9 Z `; } E('path', { d, fill: WIN }, D); }
+  E('rect', { x: 210, y: 152, width: BRX - 210, height: 63, fill: '#EFE9DC' }, D);
+  E('rect', { x: 206, y: 148, width: BRX - 202, height: 6, rx: 2, fill: '#D8CFBC' }, D);
+  E('rect', { x: 210, y: 200, width: BRX - 210, height: 15, fill: '#000', 'fill-opacity': .07 }, D);
+  { let d = ''; for (let x = 222; x < BRX - 12; x += 22) { if (x > 466 && x < 624) continue; d += `M${x},170 h9 v12 h-9 Z `; } E('path', { d, fill: WIN }, D); }
   [300, 760, 1200].forEach(x => { E('rect', { x, y: 176, width: 14, height: 39, fill: '#9A6A3A' }, D); E('rect', { x: x + 2, y: 180, width: 10, height: 8, fill: WIN, 'fill-opacity': .8 }, D); });
   /* grand staircase dome, cut open */
   E('rect', { x: 470, y: 152, width: 150, height: 63, fill: '#BE8A55' }, D);
@@ -615,16 +676,33 @@ function shipCutaway(parent, o = {}) {
   E('path', { d: 'M480,152 Q482,104 545,100 Q608,104 610,152 Z', fill: lgrad([[0, '#FFFBEA'], [1, '#FFE7A8']]) }, D);
   E('path', { d: 'M545,92 V152 M508,98 Q500,120 498,152 M582,98 Q590,120 592,152 M478,128 Q545,118 612,128', stroke: '#A8B9C0', 'stroke-width': 2, fill: 'none' }, D);
   itrGlow(D, 545, 130, 110, 60, '#FFE7A8', night ? .5 : .3);
-  /* bridge */
-  E('rect', { x: 1440, y: 128, width: 110, height: 87, fill: '#F4EFE4' }, D); E('rect', { x: 1436, y: 124, width: 118, height: 7, rx: 2, fill: '#D8CFBC' }, D);
-  { let d = ''; for (let x = 1448; x < 1546; x += 14) d += `M${x},140 h10 v14 h-10 Z `; E('path', { d, fill: night ? '#FFE7A8' : '#9FB7C7' }, D); }
-  /* lifeboats + davits + rail */
-  const boatX = [250, 342, 434, 526, 1064, 1156, 1248, 1340];
-  boatX.forEach((bx, i) => { itrBoat(D, bx, 207, 78); itrDavit(D, bx - 41, 214, 44, 1, '#DCD6C8', 188); itrDavit(D, bx + 41, 214, 44, -1, '#DCD6C8', 188); });
-  E('rect', { x: 36, y: 211, width: 1538, height: 4, fill: '#C49A64' }, D);
-  itrRail(D, 40, 1570, 214, 14, '#F2EEE6', 16, 1.6);
+  /* bridge + wheelhouse */
+  E('rect', { x: BRX, y: 128, width: WELL - BRX, height: 87, fill: '#F4EFE4' }, D); E('rect', { x: BRX - 4, y: 124, width: WELL - BRX + 12, height: 7, rx: 2, fill: '#D8CFBC' }, D);
+  E('rect', { x: WELL - 2, y: 131, width: 8, height: 30, fill: '#E4DDCD' }, D);
+  { let d = ''; for (let x = BRX + 8; x < WELL - 10; x += 14) d += `M${x},140 h10 v14 h-10 Z `; E('path', { d, fill: night ? '#FFE7A8' : '#9FB7C7' }, D); }
+  E('rect', { x: BRX, y: 176, width: WELL - BRX, height: 39, fill: '#000', 'fill-opacity': .05 }, D);
+  /* open well deck: hatch, cargo derrick */
+  E('rect', { x: 1442, y: 203, width: 40, height: 12, rx: 2, fill: '#7A5A3A' }, D); E('rect', { x: 1442, y: 203, width: 40, height: 3, fill: '#A07A50' }, D);
+  E('path', { d: 'M1490,215 V184 M1490,187 L1452,199', stroke: '#6E5A44', 'stroke-width': 2.6, fill: 'none', 'stroke-linecap': 'round' }, D);
+  /* raised forecastle at the bow (sheer rising to the stem) */
+  E('path', { d: `M${FC - 4},216 L${FC},198 L1581,192 L1578,216 Z`, fill: '#EFE9DC' }, D);
+  E('path', { d: `M${FC},198 L1581,192 L1581,196 L${FC},202 Z`, fill: '#C49A64' }, D);
+  E('path', { d: `M${FC - 4},216 L${FC},198 L${FC + 6},198 L${FC + 3},216 Z`, fill: '#000', 'fill-opacity': .12 }, D);
+  { let d = ''; [1514, 1532, 1550, 1566].forEach(x => d += `M${x},208 m-2.2,0 a2.2,2.2 0 1 0 4.4,0 a2.2,2.2 0 1 0 -4.4,0 `); E('path', { d, fill: WIN }, D); }
+  { let d = `M${FC},188 L1580,182 M${FC},193 L1580,187`; for (let x = FC; x <= 1580; x += 12) d += ` M${x},${f2(198 - (x - FC) * 6 / 82 - 10)} V${f2(198 - (x - FC) * 6 / 82)}`; E('path', { d, stroke: '#F2EEE6', 'stroke-width': 1.4, fill: 'none' }, D); }
+  E('rect', { x: 1540, y: 186, width: 9, height: 8, rx: 2, fill: '#3A3437' }, D);
+  /* lifeboats in quadrant davits (boats longer than the davits are tall) */
+  const boatX = [250, 340, 430, 520, 1000, 1090, 1180, 1270];
+  boatX.forEach(bx => { itrBoat(D, bx, 208, 84, { rail: '#5A3A20', coverC: '#E2DAC6' }); itrDavit(D, bx - 46, 214, 30, 1, '#CFC9BB', 186); itrDavit(D, bx + 46, 214, 30, -1, '#CFC9BB', 186); });
+  E('rect', { x: 36, y: 211, width: FC - 36, height: 4, fill: '#C49A64' }, D);
+  itrRail(D, 40, WELL, 214, 14, '#F2EEE6', 16, 1.6); itrRail(D, WELL, FC - 4, 214, 9, '#F2EEE6', 12, 1.4);
   /* boat-deck slab */
-  E('rect', { x: 36, y: 215, width: 1538, height: 10, fill: '#3A3437', 'clip-path': itrClip(H) }, D);
+  E('rect', { x: 36, y: 215, width: 1538, height: 10, fill: '#3A3437', 'clip-path': hullClip }, D);
+
+  /* ---------- character rooms: one group per layer, clipped to its room ---------- */
+  const RB = { boat: [-1400, -1200, 4400, 1424], first: [0, F0, 1600, S0 - F0], second: [0, S0, 1600, T0 - S0], third: [0, T0, 1600, B0 - T0], boiler: [0, B0, 1600, 880 - B0] };
+  const RG = G(g), rooms = {};
+  Object.keys(RB).forEach(k => { const [x, y, w, h] = RB[k]; rooms[k] = G(k === 'boat' ? RG : G(RG, { 'clip-path': hullClip }), { 'clip-path': clipRect(x, y, w, h) }); });
 
   /* ---------- hull cut-face (plating) ---------- */
   const HL = G(g);
@@ -636,28 +714,37 @@ function shipCutaway(parent, o = {}) {
   /* waterline foam at bow/stern */
   const foam = G(g); E('path', { d: 'M1560,642 q14,-6 28,0 q14,6 28,0 M20,642 q-14,-6 -28,0 q-14,6 -28,0', stroke: '#fff', 'stroke-opacity': .5, 'stroke-width': 3, fill: 'none' }, foam);
 
-  /* ---------- labels + focus overlays ---------- */
-  const LY = { boat: [0, -300, 1600, 225], first: [36, 225, 1574, 381], second: [36, 381, 1574, 511], third: [36, 511, 1574, 641], boiler: [36, 641, 1574, 880] };
-  const dimG = G(g), dimI = G(dimG, { 'clip-path': itrClip(H) }); const dims = {};
-  Object.keys(LY).forEach(k => { const [x0, y0, x1, y1] = LY[k]; dims[k] = E('rect', { x: k === 'boat' ? -300 : x0 - 12, y: y0, width: k === 'boat' ? 2200 : x1 - x0 + 24, height: y1 - y0, fill: '#0B0D18' }, k === 'boat' ? dimG : dimI); op(dims[k], 0); });
-  const SG = G(g); if (o.labels === false) op(SG, 0);
+  /* ---------- labels (under the focus overlays, so they dim with their layer) ---------- */
+  const SG = G(g);
   const signs = {
-    first: itrPlaque(SG, 195, 238, 'First class', { chain: 12 }),
-    second: itrPlaque(SG, 195, 398, 'Second class', { chain: 10, size: 19 }),
-    third: itrPlaque(SG, 195, 528, 'Third class', { chain: 10, size: 19 }),
-    engine: itrPlaque(SG, 404, 651, 'Engines', { size: 17 }),
+    first: itrPlaque(SG, 145, 236, 'First class', { chain: 10 }),
+    second: itrPlaque(SG, 145, 396, 'Second class', { chain: 8, size: 19 }),
+    third: itrPlaque(SG, 145, 526, 'Third class', { chain: 8, size: 19 }),
+    engine: itrPlaque(SG, 404, 652, 'Engines', { size: 17 }),
     boiler: itrPlaque(SG, 800, 658, 'Boiler rooms', { chain: 10, size: 20 })
   };
-  itrVignette(g, .35);
+  if (o.labels === false) Object.keys(signs).forEach(k => op(signs[k], 0));
+  /* ---------- focus overlays: one evenodd path for everything outside the hull
+     (no seam in the sky), one rect per layer inside the hull ---------- */
+  const dimG = G(g), dims = {};
+  dims.outside = E('path', { d: 'M-1400,-1200 H3000 V2000 H-1400 Z ' + H, 'fill-rule': 'evenodd', fill: '#0B0D18' }, dimG);
+  { const dimI = G(dimG, { 'clip-path': hullClip });
+    const DB = { boat: [190, 225], first: [225, 381], second: [381, 511], third: [511, 641], boiler: [641, 900] };
+    Object.keys(DB).forEach(k => { dims[k] = E('rect', { x: -100, y: DB[k][0], width: 1800, height: DB[k][1] - DB[k][0], fill: '#0B0D18' }, dimI); }); }
+  Object.keys(dims).forEach(k => op(dims[k], 0));
+  if (o.vignette !== false) g.vignette = itrVignette(g, .35);
 
-  g.signs = signs; g.layers = LY;
-  g.focus = (name, k = 1) => Object.keys(dims).forEach(n => op(dims[n], name && n !== name ? .55 * k : 0));
+  const LY = { boat: [0, -300, 1600, 225], first: [36, 225, 1574, 381], second: [36, 381, 1574, 511], third: [36, 511, 1574, 641], boiler: [36, 641, 1574, 880] };
+  g.signs = signs; g.layers = LY; g.rooms = rooms;
+  g.focus = (name, k = 1) => { const a = .55 * clamp(k);
+    Object.keys(dims).forEach(n => op(dims[n], !name ? 0 : n === 'outside' ? (name === 'boat' ? 0 : a) : (n === name ? 0 : a))); };
+  g.fade = v => op(g, v);
   g.anchors = {
-    boat: { floor: 213, x: [90, 1540] },
-    first: { floor: FF, x: [70, 1545], bath: [195, FF], stairs: [610, FF], lounge: [930, FF], pool: [1330, FF] },
-    second: { floor: SF, x: [60, 1555], dining: [380, SF], library: [800, SF], cabins: [1130, SF] },
-    third: { floor: TF, x: [55, 1555], dance: [440, TF], dining: [850, TF], cabins: [1130, TF] },
-    boiler: { floor: BF, x: [170, 1500], engine: [400, BF], catwalk: [170, 721], stokers }
+    boat: { floor: 213, x: [90, 1490], scale: .14 },
+    first: { floor: FF, x: [70, 1545], scale: .3, bath: [250, FF], stairs: [610, FF], lounge: [930, FF], pool: [1330, FF] },
+    second: { floor: SF, x: [60, 1555], scale: .27, dining: [380, SF], library: [800, SF], cabins: [1130, SF] },
+    third: { floor: TF, x: [55, 1555], scale: .27, dance: [440, TF], dining: [850, TF], cabins: [1130, TF] },
+    boiler: { floor: BF, x: [170, 1500], scale: .42, engine: [400, BF], catwalk: [300, 800], catwalkX: [215, 590], stokers, stokerFace: stokers.map(() => 1) }
   };
   g.anim = at => {
     A.forEach(f => f(at));
@@ -665,8 +752,9 @@ function shipCutaway(parent, o = {}) {
     wv.forEach((w, k) => tf(w, -((at * (10 + k * 6)) % 34), 0));
     /* fire, furnaces */
     op(fireGlow, .7 + .3 * wob(at * 4, 1)); fire.setAttribute('transform', `translate(931,366) scale(1,${f2(.85 + .2 * wob(at * 5, 2))}) translate(-931,-366)`);
-    furn.forEach(f => { const v = .62 + .38 * wob(at * 3.3, f.ph); op(f.gl, v); if (f.hot) f.hot.setAttribute('fill', v > .7 ? '#FFB24A' : '#FF8A2A'); });
-    lanterns.forEach((l, i) => op(l.glow, .78 + .22 * wob(at * 2.2, i * 3)));
+    const tq = Math.floor(at * 12) / 12;   /* glows flicker at 12 Hz in .05 steps: cheap repaints */
+    furn.forEach(f => { const v = Math.round((.62 + .38 * wob(tq * 3.3, f.ph)) * 20) / 20; itrSet(f.gl, 'opacity', f2(v)); if (f.hot) itrSet(f.hot, 'fill', v > .7 ? '#FFB24A' : '#FF8A2A'); });
+    lanterns.forEach((l, i) => itrSet(l.glow, 'opacity', f2(Math.round((.78 + .22 * wob(tq * 2.2, i * 3)) * 20) / 20)));
     /* engine: cranks + rods */
     eng.forEach(e => { const th = at * 2.6 + e.ph, R = 17, px = e.cx + R * Math.sin(th), py = 818 - R * Math.cos(th);
       const chy = py - Math.sqrt(52 * 52 - (px - e.cx) * (px - e.cx));
@@ -678,7 +766,7 @@ function shipCutaway(parent, o = {}) {
     /* pool */
     let d = '', d2 = ''; for (let x = 1190; x <= 1478; x += 12) { const y = 334 + 1.6 * Math.sin(x * .07 + at * 2.4); d += (d ? ' L' : 'M') + x + ',' + f2(y); d2 = ` L${x},${f2(y + 4)}` + d2; } ripple.setAttribute('d', d + d2 + ' Z');
     tf(caust, Math.sin(at * .9) * 6, 0);
-    tf(prop, 132, 806); prop.setAttribute('transform', `translate(132,806) scale(${f2(.35 + .65 * Math.abs(Math.cos(at * 5)))},1)`);
+    prop.setAttribute('transform', `translate(141,806) scale(${f2(.35 + .65 * Math.abs(Math.cos(at * 5)))},1)`);
     bunt.setAttribute('transform', `translate(0,${f2(Math.sin(at * 1.3) * 1.2)})`);
     tf(foam, Math.sin(at * 1.4) * 4, 0);
   };
@@ -687,17 +775,20 @@ function shipCutaway(parent, o = {}) {
 }
 
 /* =====================================================================
-   2) bgSaloon(parent, o) — first-class dining saloon (Jacobean white
-      panelling, backlit leaded windows, chandeliers, round tables).
-   g.front holds the 3 tables + music stands: call g.raiseFront() after
-   adding seated diners so the tablecloths hide their legs.
-   g.setDoor(k)   0 = closed .. 1 = open (double doors at the back)
+   2) bgSaloon(parent, o) — first-class dining saloon: Jacobean white
+      panelling, backlit leaded windows, chandeliers, round tables, palms,
+      the trio's dais with an upright piano.
+   Diners and the trio → g.mid (the tablecloths in g.front hide diners' legs);
+   a waiter walking in front of the tables (anchors.walkY) → g.over.
+   g.tables[i]   front group of table i (0..2, left→right): to pass BEHIND table
+                 i but in front of the others use g.front.insertBefore(char.root, g.tables[i])
+   g.setDoor(k)  0 = closed .. 1 = open (double doors at the back)
    g.anchors = {
      table1:[480,740], table2:[900,740], table3:[1320,740]   (diner behind table centre)
-     seats: [[[405,740],[555,740]], [[825,740],[975,740]], [[1245,740],[1395,740]]]
-     tableTop: 600 (y of the cloth top), door:[1110,652], trio:[[70,668],[160,668],[250,668]],
-     walkY: 850 (a waiter's walking line in front of the tables)
-   }
+     seats: [[[405,740],[555,740]], [[825,740],[975,740]], [[1245,740],[1395,740]]]  (sit:true, s:1)
+     tableTop: 600 (y of the cloth top), door:[1110,652] (s ≈ .8),
+     trio: [[80,672],[195,672],[310,672]], trioScale: .85  (pianist, cellist, violinist),
+     walkY: 850 (waiter's line in front of the tables, s:1) }
    ===================================================================== */
 function bgSaloon(parent, o = {}) {
   const g = G(parent), A = []; itrFront(g, parent);
@@ -716,7 +807,7 @@ function bgSaloon(parent, o = {}) {
   E('rect', { x: -200, y: 106, width: 2000, height: 7, fill: '#D3C6AC' }, g);
   { let d = ''; for (let x = -200; x < 1800; x += 16) d += `M${x},126 h9 v12 h-9 Z `; E('path', { d, fill: '#E2D6BE' }, g); }
   E('rect', { x: -200, y: 117, width: 2000, height: 4, fill: '#FFFFFF' }, g);
-  E('rect', { x: -200, y: 146, width: 2000, height: 6, fill: '#CDBF A2'.replace(' ', '') }, g);
+  E('rect', { x: -200, y: 146, width: 2000, height: 6, fill: '#CDBFA2' }, g);
   /* --- wall: white Jacobean panelling --- */
   E('rect', { x: -200, y: 152, width: 2000, height: 500, fill: '#F0E8D8' }, g);
   E('rect', { x: -200, y: 152, width: 2000, height: 46, fill: '#E8DECB' }, g);
@@ -746,7 +837,13 @@ function bgSaloon(parent, o = {}) {
     const L = G(g, { 'clip-path': itrClip(arch(0)) }); let d = '';
     for (let k = -20; k < 30; k++) { const x0 = cx - ww + k * 22; d += `M${x0},${top - 10} L${x0 + 360},${top + 350} M${x0},${top - 10} L${x0 - 360},${top + 350} `; }
     E('path', { d, stroke: '#9A7440', 'stroke-opacity': .45, 'stroke-width': 1.6 }, L);
-    E('circle', { cx, cy: top + 62, r: 30, fill: '#3E6B4E', 'fill-opacity': .8 }, L); E('circle', { cx, cy: top + 62, r: 19, fill: '#C9443A', 'fill-opacity': .85 }, L); E('circle', { cx, cy: top + 62, r: 9, fill: '#F7C948' }, L);
+    /* stained-glass cartouche with a fleur-de-lis, coloured lozenges around it */
+    { const m = G(L); tf(m, cx, top + 74);
+      E('ellipse', { rx: 34, ry: 46, fill: '#B8863A', 'fill-opacity': .75 }, m); E('ellipse', { rx: 30, ry: 42, fill: '#FBE6A8' }, m);
+      E('path', { d: 'M0,-30 Q11,-12 0,6 Q-11,-12 0,-30 Z', fill: '#4E8A5A' }, m);
+      [-1, 1].forEach(sd => E('path', { d: `M${sd * 3},2 Q${sd * 25},-6 ${sd * 19},-22 Q${sd * 14},-6 ${sd * 2},-4 Z`, fill: '#5E9A68' }, m));
+      E('rect', { x: -13, y: 4, width: 26, height: 6, rx: 2, fill: '#B8863A' }, m); E('path', { d: 'M0,10 L-7,26 H7 Z', fill: '#4E8A5A' }, m);
+      [[0, -58, '#C9504A'], [0, 58, '#C9504A'], [-46, 0, '#5A7AB8'], [46, 0, '#5A7AB8']].forEach(([x, y, c]) => E('path', { d: `M${x},${y - 11} l8,11 l-8,11 l-8,-11 Z`, fill: c, 'fill-opacity': .75 }, m)); }
     E('rect', { x: cx - ww, y: top + (bot - top) * .45, width: w, height: 30, fill: '#F2D27E', 'fill-opacity': .45 }, L);
     E('rect', { x: cx - 3, y: top, width: 6, height: bot - top, fill: '#E9E0CC' }, g); E('rect', { x: cx - ww, y: top + (bot - top) * .45 - 3, width: w, height: 6, fill: '#E9E0CC' }, g);
     E('rect', { x: cx - ww - 22, y: bot + 6, width: w + 44, height: 12, rx: 3, fill: '#F7F2E8' }, g); E('rect', { x: cx - ww - 22, y: bot + 15, width: w + 44, height: 4, fill: '#D3C6AC' }, g); };
@@ -769,7 +866,6 @@ function bgSaloon(parent, o = {}) {
     E('path', { d, stroke: '#9A7440', 'stroke-opacity': .4, 'stroke-width': 1.3, 'clip-path': clipRect(x0 + 14, 280, 58, 162) }, inner);
     E('rect', { x: x0 + 10, y: 462, width: 66, height: 150, rx: 2, fill: '#E2D7C2' }, inner); E('rect', { x: x0 + 16, y: 468, width: 54, height: 138, rx: 2, fill: '#F4EEE2' }, inner);
     E('circle', { cx: s < 0 ? x0 + 76 : x0 + 10, cy: 452, r: 6, fill: '#C9A045' }, inner);
-    E('rect', { x: x0, y: 262, width: 86, height: 374, fill: s < 0 ? '#000' : '#000', 'fill-opacity': 0 }, inner);
     return { lg, hx }; };
   const leaves = [leaf(-1), leaf(1)];
   /* --- floor: linoleum tiles in perspective --- */
@@ -781,19 +877,25 @@ function bgSaloon(parent, o = {}) {
     E('path', { d: dA, fill: '#DCCAA8' }, g); E('path', { d: dB, fill: '#C9A57A' }, g); E('path', { d: dC, fill: '#9A6448' }, g); }
   E('rect', { x: -200, y: FL, width: 2000, height: 450, fill: lgrad([[0, '#2A1A10', .38], [.25, '#2A1A10', .08], [1, '#2A1A10', .3]]) }, g);
   [480, 900, 1320].forEach(x => itrGlow(g, x, 760, 300, 70, '#FFE2A0', .35));
-  /* --- trio corner: dais + upright piano --- */
-  E('path', { d: 'M-200,640 H318 L340,676 H-200 Z', fill: '#A8743F' }, g);
-  { let d = ''; for (let y = 646; y < 676; y += 8) d += `M-200,${y} H${f2(318 + (y - 640) * .6)} `; E('path', { d, stroke: '#8E5E33', 'stroke-width': 1.2 }, g); }
-  E('rect', { x: -200, y: 676, width: 540, height: 26, fill: '#6E4426' }, g); E('rect', { x: -200, y: 676, width: 540, height: 4, fill: '#8E5E33' }, g);
-  E('path', { d: 'M340,676 L318,640 V648 L332,672 Z', fill: '#5A3620' }, g);
-  { const pn = G(g); tf(pn, -40, 660);
+  /* --- trio corner: dais + upright piano (musicians stand at anchors.trio, scale ≈ .85) --- */
+  E('path', { d: 'M-200,640 H410 L432,676 H-200 Z', fill: '#A8743F' }, g);
+  { let d = ''; for (let y = 646; y < 676; y += 8) d += `M-200,${y} H${f2(410 + (y - 640) * .6)} `; E('path', { d, stroke: '#8E5E33', 'stroke-width': 1.2 }, g); }
+  E('rect', { x: -200, y: 676, width: 632, height: 26, fill: '#6E4426' }, g); E('rect', { x: -200, y: 676, width: 632, height: 4, fill: '#8E5E33' }, g);
+  E('path', { d: 'M432,676 L410,640 V648 L424,672 Z', fill: '#5A3620' }, g);
+  { const pn = G(g); tf(pn, 70, 648);
+    E('ellipse', { cx: 0, cy: 2, rx: 92, ry: 8, fill: '#000', 'fill-opacity': .22 }, pn);
     E('rect', { x: -78, y: -196, width: 156, height: 196, rx: 4, fill: '#3A2218' }, pn); E('rect', { x: -84, y: -204, width: 168, height: 12, rx: 3, fill: '#4E3024' }, pn);
+    E('rect', { x: -78, y: -196, width: 156, height: 5, fill: '#5E3A2A' }, pn);
     E('rect', { x: -62, y: -180, width: 124, height: 70, rx: 4, fill: '#4A2C20' }, pn); E('path', { d: 'M-50,-150 q20,-20 50,0 q30,20 50,0', stroke: '#C9A045', 'stroke-width': 2, fill: 'none' }, pn);
+    E('rect', { x: -26, y: -174, width: 52, height: 30, rx: 2, fill: '#F4EEE0' }, pn); { let d = ''; for (let k = 0; k < 4; k++) d += `M-22,${-168 + k * 6} h44 `; E('path', { d, stroke: '#3A3020', 'stroke-width': .8, 'stroke-opacity': .6 }, pn); }
     E('rect', { x: -80, y: -96, width: 160, height: 14, fill: '#F6F2EA' }, pn); { let d = ''; for (let k = 0; k < 14; k++) d += `M${-74 + k * 11},-96 v8 `; E('path', { d, stroke: '#1E1A1C', 'stroke-width': 4 }, pn); }
     E('rect', { x: -84, y: -82, width: 168, height: 8, fill: '#4E3024' }, pn);
-    E('rect', { x: 72, y: -110, width: 10, height: 104, fill: '#000', 'fill-opacity': .2 }, pn);
-    [-60, 60].forEach(x => { E('rect', { x: x - 2, y: -228, width: 4, height: 24, fill: '#C9A045' }, pn); E('ellipse', { cx: x, cy: -232, rx: 3, ry: 5, fill: '#FFE7A8' }, pn); A.push(at => 0); });
-    const cg = [-60, 60].map(x => itrGlow(pn, x, -232, 40, 40, '#FFE2A0', .55)); A.push(at => cg.forEach((c, i) => op(c, .75 + .25 * wob(at * 6, i + 2)))); }
+    E('rect', { x: -70, y: -74, width: 10, height: 74, fill: '#4E3024' }, pn); E('rect', { x: 60, y: -74, width: 10, height: 74, fill: '#4E3024' }, pn);
+    E('rect', { x: 66, y: -196, width: 12, height: 196, fill: '#000', 'fill-opacity': .2 }, pn);
+    [-60, 60].forEach(x => { E('rect', { x: x - 2, y: -228, width: 4, height: 24, fill: '#C9A045' }, pn); E('ellipse', { cx: x, cy: -232, rx: 3, ry: 5, fill: '#FFE7A8' }, pn); });
+    const cg = [-60, 60].map(x => itrGlow(pn, x, -232, 40, 40, '#FFE2A0', .55)); A.push(at => cg.forEach((c, i) => op(c, .75 + .25 * wob(at * 6, i + 2))));
+    /* piano stool */
+    E('rect', { x: 2, y: 4, width: 44, height: 10, rx: 4, fill: '#7A2E3A' }, pn); E('path', { d: 'M8,14 V30 M40,14 V30', stroke: '#3A2218', 'stroke-width': 4 }, pn); }
   { const pl = itrPalm(g, -150, 642, 1.5, 21); A.push(pl.anim); }
   { const pl = itrPalm(g, 690, 664, 1.55, 7); A.push(pl.anim); }
   { const pl = itrPalm(g, 1550, 664, 1.55, 13); A.push(pl.anim); }
@@ -808,10 +910,11 @@ function bgSaloon(parent, o = {}) {
   TX3.forEach(tx => { chairBack(tx - 75, 470); chairBack(tx + 75, 470); });
   /* --- chandeliers --- */
   TX3.forEach((x, i) => { const c = itrChandelier(g, x, -20, 120, 1.55, 30 + i); A.push(c.anim); });
-  itrVignette(g, .42);
+  if (o.vignette !== false) g.vignette = itrVignette(g, .42);
   /* --- FRONT: tables, music stands --- */
   const lamps = [];
-  TX3.forEach((tx, ti) => { const t = G(g.front);
+  const tables = [];
+  TX3.forEach((tx, ti) => { const t = G(g.front); tables.push(t);
     E('ellipse', { cx: tx, cy: 774, rx: 172, ry: 20, fill: '#000', 'fill-opacity': .22 }, t);
     let hem = ''; for (let k = 0; k <= 8; k++) { const x = tx - 142 + k * 35.5; hem += ` Q${f2(x - 17.75)},${k % 2 ? 772 : 760} ${f2(x)},${766}`; }
     const drape = `M${tx - 132},600 L${tx - 142},766${hem.replace(/^ Q[^ ]+ [^ ]+/, '')} L${tx + 132},600 Z`;
@@ -836,15 +939,16 @@ function bgSaloon(parent, o = {}) {
     E('path', { d: `M${tx + 34},594 Q${tx + 30},584 ${tx + 36},578 Q${tx + 42},584 ${tx + 38},594 Z`, fill: '#DCEBFA', 'fill-opacity': .85 }, t);
     [[-4, -8, '#E84855'], [3, -12, '#FFFFFF'], [8, -6, '#F7C948'], [0, -16, '#E84855']].forEach(([dx, dy, c]) => E('circle', { cx: tx + 36 + dx, cy: 578 + dy, r: 4, fill: c }, t));
   });
-  /* music stands in front of the trio */
-  [115, 205].forEach(x => { const m = G(g.front); E('path', { d: `M${x},668 V560 M${x - 16},668 L${x},640 L${x + 16},668`, stroke: '#B88E3A', 'stroke-width': 3, fill: 'none' }, m);
+  /* music stands beside the cellist and the violinist */
+  [138, 252].forEach(x => { const m = G(g.front); E('path', { d: `M${x},668 V560 M${x - 16},668 L${x},640 L${x + 16},668`, stroke: '#B88E3A', 'stroke-width': 3, fill: 'none' }, m);
     E('path', { d: `M${x - 26},560 L${x + 26},560 L${x + 22},526 L${x - 22},526 Z`, fill: '#B88E3A' }, m); E('rect', { x: x - 20, y: 520, width: 40, height: 34, fill: '#FBF7EE', transform: `rotate(-3 ${x} 537)` }, m);
     let d = ''; for (let k = 0; k < 4; k++) d += `M${x - 16},${527 + k * 7} h32 `; E('path', { d, stroke: '#3A3020', 'stroke-width': .8, 'stroke-opacity': .6 }, m); });
+  g.tables = tables;
   g.setDoor = k => leaves.forEach((L, i) => L.lg.setAttribute('transform', `translate(${L.hx},0) scale(${f2(Math.cos(clamp(k) * 1.7))},1) translate(${-L.hx},0)`));
   g.anchors = {
     table1: [480, 740], table2: [900, 740], table3: [1320, 740],
     seats: TX3.map(x => [[x - 75, 740], [x + 75, 740]]), tableTop: 600,
-    door: [1110, FL], trio: [[70, 668], [160, 668], [250, 668]], walkY: 850
+    door: [1110, FL], trio: [[80, 672], [195, 672], [310, 672]], trioScale: .85, walkY: 850
   };
   g.anim = at => { A.forEach(f => f(at)); lamps.forEach((l, i) => op(l, .75 + .25 * wob(at * 5, i * 2.3))); };
   g.setDoor(0); g.anim(0);
@@ -852,18 +956,18 @@ function bgSaloon(parent, o = {}) {
 }
 
 /* =====================================================================
-   3) bgBoiler(parent, o) — boiler room: three big boilers end-on, nine
-      furnace doors, coal, pipes, gauges, steam.
+   3) bgBoiler(parent, o) — boiler room: three steel boilers end-on, nine
+      furnace doors, coal, pipes, gauges, steam, swinging cage lamps.
+   Stokers → g.mid; g.front = foreground coal heap + flood water (over them).
    g.setDoor(i, k)  furnace door i (0..8, left→right) open k 0..1
-   g.setHeat(k)     overall fire intensity (default 1; 1.5 = "full speed")
+   g.setHeat(k)     fire intensity (default 1; 1.5 = "full speed"; 0 = fires out)
    g.setGauge(v)    pressure needles 0..1 (default .6)
-   g.setWater(h)    flood water 0 (dry) .. 1 (chest-high); drawn in g.front
-   g.front          foreground coal heap + flood water; call g.raiseFront()
+   g.setWater(h)    flood 0 (dry) .. 1 (chest-high); the fires dim, hiss and die as it rises
    g.anchors = {
-     stokers: [[240,795],[650,795],[950,795],[1360,795]]  (in front of doors 1,3,5,7)
-     stokerDoor: [1,3,5,7], doors: [[x,y]×9] (centre of each furnace door),
-     floor: 795, bunker: [520,700], gauge: [[x,y]×3]
-   }
+     stokers: [[145,795],[555,795],[1045,795],[1455,795]]  (s:1, beside doors 1,3,5,7 so the fire stays visible)
+     stokerFace: [1,1,-1,-1]  (+1 = his door is to his right; -1 = to his left → flip:true)
+     stokerDoor: [1,3,5,7], doors: [[x,558]×9] (door centres: x 90,240,390,650,800,950,1210,1360,1510),
+     floor: 795, bunker: [520,700], bunkers: [[520,700],[1080,700]], gauge: [[x,y]×3] }
    ===================================================================== */
 function bgBoiler(parent, o = {}) {
   const g = G(parent), A = []; itrFront(g, parent);
@@ -887,17 +991,24 @@ function bgBoiler(parent, o = {}) {
     E('path', { d: `M${-r},0 H${r} M0,${-r} V${r}`, stroke: '#B8362E', 'stroke-width': 3 }, w); E('circle', { r: 4, fill: '#7A2420' }, w); return w; };
   [520, 1080].forEach(x => { E('rect', { x: x - 10, y: 64, width: 20, height: 40, fill: '#A89F92' }, g); wheelV(x, 120); });
   /* --- boilers --- */
-  const doors = [], fires = [], glows = [], gauges = [], dAnch = [];
+  const doors = [], fires = [], glowG = [], floorG = [], gauges = [], dAnch = [];
   BC.forEach((cx, bi) => {
     E('rect', { x: cx - 215, y: CY + 150, width: 430, height: FL - CY - 150, fill: '#231C1E' }, g);
-    E('circle', { cx, cy: CY, r: R + 18, fill: '#1A1517' }, g);
-    E('circle', { cx, cy: CY, r: R, fill: '#4E4749' }, g);
-    E('path', { d: `M${cx - R},${CY} A${R},${R} 0 0 0 ${cx + R},${CY} Z`, fill: '#443D3F' }, g);
-    E('circle', { cx, cy: CY, r: R, fill: lgrad([[0, '#FF8A3A', 0], [.6, '#FF8A3A', .05], [1, '#FF8A3A', .35]]) }, g);
-    E('circle', { cx, cy: CY, r: R - 10, fill: 'none', stroke: '#5E5658', 'stroke-width': 7 }, g);
-    { let d = ''; for (let k = 0; k < 48; k++) { const a = k / 48 * Math.PI * 2; d += `M${f2(cx + Math.cos(a) * (R - 22))},${f2(CY + Math.sin(a) * (R - 22))} m-2.5,0 a2.5,2.5 0 1 0 5,0 a2.5,2.5 0 1 0 -5,0 `; }
-      E('path', { d, fill: '#6A6264' }, g); }
-    E('path', { d: `M${cx - R * .78},${CY - R * .48} A${R * .92},${R * .92} 0 0 1 ${cx + R * .1},${CY - R * .9}`, stroke: '#706769', 'stroke-width': 12, fill: 'none', 'stroke-linecap': 'round', 'stroke-opacity': .8 }, g);
+    /* boiler end: flat steel plates with lap seams and rivet rows (matte, no shine) */
+    const yT = CY - R * .45, wT = R * .893, yB = CY + R * .5, wB = R * .866;
+    E('circle', { cx, cy: CY, r: R + 18, fill: '#1A1C1F' }, g);
+    E('circle', { cx, cy: CY, r: R, fill: '#4A4F55' }, g);
+    E('path', { d: `M${f2(cx - wT)},${f2(yT)} A${R},${R} 0 0 1 ${f2(cx + wT)},${f2(yT)} Z`, fill: '#535960' }, g);
+    E('path', { d: `M${f2(cx - wB)},${f2(yB)} A${R},${R} 0 0 0 ${f2(cx + wB)},${f2(yB)} Z`, fill: '#40454B' }, g);
+    E('circle', { cx, cy: CY, r: R, fill: lgrad([[0, '#FF8A3A', 0], [.62, '#FF8A3A', 0], [1, '#FF8A3A', .26]]) }, g);
+    E('circle', { cx, cy: CY, r: R - 10, fill: 'none', stroke: '#2C3034', 'stroke-width': 4 }, g);
+    E('path', { d: `M${f2(cx - wT)},${f2(yT)} H${f2(cx + wT)} M${f2(cx - wB)},${f2(yB)} H${f2(cx + wB)}`, stroke: '#2C3034', 'stroke-width': 4 }, g);
+    E('path', { d: `M${f2(cx - R * .94)},${f2(CY - R * .34)} A${R - 3},${R - 3} 0 0 1 ${f2(cx + R * .94)},${f2(CY - R * .34)}`, stroke: '#6E757C', 'stroke-width': 3, fill: 'none', 'stroke-opacity': .55 }, g);
+    { let d = '', h = ''; const rv = (x, y) => { d += `M${f2(x)},${f2(y)} m-2.6,0 a2.6,2.6 0 1 0 5.2,0 a2.6,2.6 0 1 0 -5.2,0 `; h += `M${f2(x - 1)},${f2(y - 1)} m-.9,0 a.9,.9 0 1 0 1.8,0 a.9,.9 0 1 0 -1.8,0 `; };
+      for (let k = 0; k < 56; k++) { const a = k / 56 * Math.PI * 2; rv(cx + Math.cos(a) * (R - 22), CY + Math.sin(a) * (R - 22)); }
+      for (let x = cx - wT + 30; x < cx + wT - 28; x += 15) { rv(x, yT - 8); rv(x, yT + 8); }
+      for (let x = cx - wB + 30; x < cx + wB - 28; x += 15) { rv(x, yB - 8); rv(x, yB + 8); }
+      E('path', { d, fill: '#2A2D31' }, g); E('path', { d: h, fill: '#7A8188', 'fill-opacity': .7 }, g); }
     /* smoke-box doors */
     E('rect', { x: cx - 150, y: CY - 196, width: 300, height: 170, rx: 26, fill: '#3B3436' }, g);
     E('rect', { x: cx - 144, y: CY - 190, width: 140, height: 158, rx: 20, fill: '#463F41' }, g); E('rect', { x: cx + 4, y: CY - 190, width: 140, height: 158, rx: 20, fill: '#463F41' }, g);
@@ -932,11 +1043,12 @@ function bgBoiler(parent, o = {}) {
       const slots = []; for (let s = 0; s < 3; s++) slots.push(E('rect', { x: fx - 26, y: fy - 16 + s * 14, width: 52, height: 6, rx: 3, fill: '#FF9A3A' }, leafG));
       E('rect', { x: fx + 24, y: fy - 4, width: 30, height: 8, rx: 4, fill: '#8A8284' }, leafG); E('circle', { cx: fx + 52, cy: fy, r: 6, fill: '#9A9294' }, leafG);
       E('rect', { x: hx - 6, y: fy - 30, width: 12, height: 14, rx: 3, fill: '#2A2426' }, leafG); E('rect', { x: hx - 6, y: fy + 16, width: 12, height: 14, rx: 3, fill: '#2A2426' }, leafG);
-      const gl = itrGlow(g, fx, fy + 10, 110, 90, '#FF9A3A', .5);
-      doors.push({ leafG, hx, slots, gl, fg: null, fire, k: 0, ph: hash(fx * .37) * 9, fx });
+      doors.push({ leafG, hx, slots, gl: null, fg: null, fire, k: 0, bi, fx, fy, sub: 0 });
       /* ash-pit door */
       E('rect', { x: fx - 40, y: FL - 46, width: 80, height: 34, rx: 6, fill: '#352E30' }, g); E('rect', { x: fx - 30, y: FL - 34, width: 60, height: 5, rx: 2, fill: '#5A1E10' }, g);
     });
+    /* the three door glows of this boiler flicker together (one group = cheap) */
+    const gg = G(g); glowG.push(gg); doors.forEach(d => { if (d.bi === bi) d.gl = itrGlow(gg, d.fx, d.fy + 10, 110, 90, '#FF9A3A', .5); });
   });
   /* between boilers: bunker door, lamps */
   [520, 1080].forEach((x, i) => { E('rect', { x: x - 34, y: 470, width: 68, height: FL - 470, fill: '#1E181A' }, g); E('rect', { x: x - 30, y: 474, width: 60, height: 70, fill: '#3E3739' }, g);
@@ -953,7 +1065,7 @@ function bgBoiler(parent, o = {}) {
       const s = .6 + (y - FL) / 300; t += `M${f2(x)},${f2(y)} l${f2(6 * s)},${f2(-3 * s)} `; }
     E('path', { d: t, stroke: '#4A4144', 'stroke-width': 2.2, 'stroke-linecap': 'round' }, g); }
   E('rect', { x: -200, y: FL, width: 2000, height: 40, fill: lgrad([[0, '#000', .45], [1, '#000', 0]]) }, g);
-  doors.forEach(d => { d.fg = itrGlow(g, d.fx, FL + 60, 150, 46, '#FF8A2A', .5); });
+  BC.forEach((cx, bi) => { const fg = G(g); floorG.push(fg); doors.forEach(d => { if (d.bi === bi) d.fg = itrGlow(fg, d.fx, FL + 60, 150, 46, '#FF8A2A', .5); }); });
   BC.forEach(cx => itrGlow(g, cx, FL + 120, 420, 140, '#FF7A2A', .22));
   /* coal heaps on the floor + scattered lumps */
   const heap = (P, x, y, w, h, seed) => { E('path', { d: `M${x - w},${y} Q${x - w * .55},${y - h * 1.15} ${x},${y - h} Q${x + w * .55},${y - h * 1.15} ${x + w},${y} Z`, fill: '#1C191B' }, P);
@@ -974,24 +1086,34 @@ function bgBoiler(parent, o = {}) {
   const st1 = steam(g, 4, 110, '#FFFFFF'); tf(st1, 300, 66); A.push(st1.anim);
   const st2 = steam(g, 3, 90, '#FFFFFF'); tf(st2, 1240, 66); A.push(st2.anim);
   const jet = G(g); const jets = [0, 1, 2, 3, 4].map(i => E('ellipse', { rx: 18, ry: 10, fill: '#FFFFFF' }, jet));
-  itrVignette(g, .55, .4);
+  if (o.vignette !== false) g.vignette = itrVignette(g, .55, .4);
   /* --- FRONT: foreground coal heap, flood water --- */
   heap(g.front, -60, 930, 200, 120, 11);
   const water = G(g.front);
   const wBody = E('path', { fill: '#1E5A7A', 'fill-opacity': .55 }, water);
   const wTop = E('path', { fill: 'none', stroke: '#9FD8F0', 'stroke-width': 4, 'stroke-opacity': .7 }, water);
+  /* steam hissing where the sea reaches a furnace */
+  const hiss = doors.map(d => { const q = G(g.front); E('ellipse', { rx: 22, ry: 14, fill: '#F2F4F8' }, q); E('ellipse', { cx: 12, cy: -8, rx: 15, ry: 11, fill: '#FFFFFF' }, q); op(q, 0); return q; });
   let waterH = 0;
-  g.setDoor = (i, k) => { const d = doors[i]; if (!d) return; d.k = clamp(k); d.leafG.setAttribute('transform', `translate(${d.hx},0) scale(${f2(Math.cos(d.k * 1.95))},1) translate(${-d.hx},0)`); };
+  g.setDoor = (i, k) => { const d = doors[i]; if (!d) return; d.k = clamp(k); itrSet(d.leafG, 'transform', `translate(${d.hx},0) scale(${f2(Math.cos(d.k * 1.95))},1) translate(${-d.hx},0)`); };
   g.setHeat = k => { heat = k; };
   g.setGauge = v => { gaugeV = v; };
   g.setWater = h => { waterH = clamp(h); };
-  g.anchors = { stokers: [[240, 795], [650, 795], [950, 795], [1360, 795]], stokerDoor: [1, 3, 5, 7], doors: dAnch, floor: 795, bunker: [520, 700], gauge: gauges.map(q => [q.x, q.y]) };
+  g.anchors = { stokers: [[145, 795], [555, 795], [1045, 795], [1455, 795]], stokerFace: [1, 1, -1, -1], stokerDoor: [1, 3, 5, 7], doors: dAnch, floor: 795, bunker: [520, 700], bunkers: [[520, 700], [1080, 700]], gauge: gauges.map(q => [q.x, q.y]) };
   g.anim = at => {
     A.forEach(f => f(at));
-    doors.forEach((d, i) => { const v = clamp((.6 + .4 * wob(at * 3.2, d.ph)) * heat * (1 + d.k * .6), 0, 1.6);
-      d.leafG.setAttribute('transform', `translate(${d.hx},0) scale(${f2(Math.cos(d.k * 1.95))},1) translate(${-d.hx},0)`);
-      op(d.gl, clamp(v * (.45 + d.k * .55))); op(d.fg, clamp(v * (.55 + d.k * .45)));
-      d.slots.forEach(s => s.setAttribute('fill', v > .8 ? '#FFB24A' : '#FF8A2A')); });
+    const wy = waterH > 0 ? lerp(905, 560, waterH) : 2000;
+    /* fire flicker: sampled at 12 Hz and in .05 steps, written only on change
+       (the big glow layers are the most expensive thing to repaint) */
+    const tq = Math.floor(at * 12) / 12, fl = BC.map((_, bi) => .6 + .4 * wob(tq * 3.2, bi * 2.7));
+    glowG.forEach((q, bi) => itrSet(q, 'opacity', f2(Math.round(fl[bi] * 20) / 20))); floorG.forEach((q, bi) => itrSet(q, 'opacity', f2(Math.round((.75 + .25 * fl[bi]) * 20) / 20)));
+    doors.forEach((d, i) => { const sub = clamp((d.fy + 44 - wy) / 88), lit = 1 - clamp(Math.max((FL - wy) / 140, sub * 1.5)), sF = clamp((FL + 62 - wy) / 50);
+      const base = clamp(heat * (1 + d.k * .6), 0, 1.6);
+      itrSet(d.gl, 'opacity', f2(clamp(base * (.45 + d.k * .55)) * lit)); itrSet(d.fg, 'opacity', f2(clamp(base * (.55 + d.k * .45)) * lit * (1 - sF)));
+      itrSet(d.fire, 'opacity', f2(lit * clamp(heat))); const hot = fl[d.bi] * base > .8;
+      d.slots.forEach(s => { itrSet(s, 'fill', hot ? '#FFB24A' : '#FF8A2A'); itrSet(s, 'opacity', f2(lit * clamp(heat * 1.5))); });
+      const hs = hiss[i]; if (lit > 0 && lit < 1 && heat > 0) { const ph = (at * 1.2 + i * .37) % 1; op(hs, .8 * Math.sin(ph * Math.PI) * Math.min(1, lit * 3));
+        tf(hs, d.fx - 30 + ph * 40 + Math.sin(at * 3 + i) * 6, Math.min(wy, d.fy + 40) - 8 - ph * 80, 0, .6 + ph * 1.4); } else op(hs, 0); });
     fires.forEach(f => f.fl.setAttribute('transform', `translate(${f.fx},${f.fy + 40}) scale(${f2(1 + .06 * wob(at * 7, f.ph))},${f2(.8 + .3 * Math.abs(wob(at * 6, f.ph + 1)) * Math.min(1.4, heat))}) translate(${-f.fx},${-f.fy - 40})`));
     gauges.forEach(q => q.nd.setAttribute('transform', `translate(${q.x},${q.y}) rotate(${f2(-120 + gaugeV * 240 + 4 * wob(at * 2.5, q.ph))})`));
     lamps.forEach((l, i) => { op(l.glow, .8 + .2 * wob(at * 2, i)); l.setAttribute('transform', `translate(${[520, 1080, -40, 1640][i]},-20) rotate(${f2(Math.sin(at * .8 + i) * 1.2)})`); });
@@ -1016,14 +1138,15 @@ function itrForm(p, x, y, r = 0, s = 1, band = '#9FB4C8') {
 
 /* =====================================================================
    4) bgWireless(parent, o) — the wireless room at night.
-   g.front holds the desk (with key, tuner, detector and the paper pile):
-   seat the operator at anchors.seat, then g.raiseFront().
-   g.setClock(h, m)   wall clock time (default 11:40)
-   g.setPile(k)       telegram pile on the desk 0..1 (default .5)
-   g.setSpark(k)      spark-gap intensity 0..1 (default .55, always crackles a bit)
-   g.setKey(d)        Morse key lever pressed 0..1
-   g.anchors = { seat:[760,765], pile:[520,642], key:[850,634], tube:[120,330],
-                 basket:[140,390], spark:[1325,420], clock:[590,250], porthole:[960,270], floorPile:[170,700] }
+   The operator sits in g.mid at anchors.seat ({sit:true}); g.front = the desk
+   with Morse key, detector, tuner, spike and telegram pile (hides his legs).
+   g.setClock(h, m)  wall clock (default 11:40)
+   g.setPile(k)      telegram pile on the desk 0..1 (default .5)
+   g.setSpark(k)     spark gap: 0 = silent, .55 = idle crackle (default), 1 = roaring
+   g.setKey(d)       Morse key pressed 0..1 (lever dips, contact spark when d > .6)
+   g.anchors = { seat:[760,765], key:[836,572] (top of the key's knob — put a hand here),
+     pile:[520,642], tube:[120,330], basket:[140,390] (overflowing wire basket under the tube),
+     wasteBasket:[360,820], spark:[1325,420], clock:[590,250], porthole:[960,270], floorPile:[170,700] }
    ===================================================================== */
 function bgWireless(parent, o = {}) {
   const g = G(parent), A = []; itrFront(g, parent);
@@ -1084,10 +1207,16 @@ function bgWireless(parent, o = {}) {
   for (let i = 0; i < 26; i++) { const x = 40 + hash(i * 2.7 + 5) * 300, y = 690 + hash(i * 4.1) * 80 - (1 - Math.abs(x - 180) / 160) * 40, r = (hash(i * 6.3) - .5) * 160;
     itrForm(g, x, y, r, 1.05, hash(i * 9) > .82 ? '#E8A0A0' : '#9FB4C8'); }
   const faller = itrForm(g, 0, 0, 0, .9);
-  /* waste basket */
-  { const w = G(g); tf(w, 1130, 720); E('path', { d: 'M-40,-70 H40 L32,0 H-32 Z', fill: '#6B4A2B' }, w);
-    [[-22, -76, 16, '#F2EADA'], [6, -84, 18, '#EDE4D0'], [24, -72, 14, '#F2EADA'], [-4, -64, 13, '#E6DCC6']].forEach(([x, y, r, c]) => E('circle', { cx: x, cy: y, r, fill: c }, w));
-    E('path', { d: 'M-40,-70 H40', stroke: '#4A3220', 'stroke-width': 5 }, w); }
+  /* wicker waste basket, overflowing with crumpled forms (left of the desk) */
+  { const w = G(g); tf(w, 360, 820);
+    E('ellipse', { cx: 4, cy: 2, rx: 48, ry: 7, fill: '#000', 'fill-opacity': .25 }, w);
+    E('path', { d: 'M-42,-74 H42 L33,0 H-33 Z', fill: '#A8784A' }, w); E('path', { d: 'M12,-74 H42 L33,0 H8 Z', fill: '#000', 'fill-opacity': .14 }, w);
+    { let d = ''; for (let y = -64; y < 0; y += 9) d += `M${f2(-41 + (y + 74) * .12)},${y} H${f2(41 - (y + 74) * .12)} `; for (let x = -36; x <= 36; x += 9) d += `M${x},-74 L${f2(x * .8)},0 `; E('path', { d, stroke: '#7E5530', 'stroke-width': 1.6 }, w); }
+    const ball = (x, y, r, rot) => { const b = G(w); tf(b, x, y, rot);
+      E('circle', { r, fill: '#F4EEDF' }, b); E('path', { d: `M${f2(r * .2)},${f2(-r)} A${r},${r} 0 0 1 ${f2(r * .2)},${r} Q${f2(r * .55)},0 ${f2(r * .2)},${f2(-r)} Z`, fill: '#D3C8B0' }, b);
+      E('path', { d: `M${f2(-r * .7)},${f2(-r * .2)} L${f2(-r * .1)},${f2(r * .1)} L${f2(-r * .3)},${f2(r * .6)} M${f2(-r * .1)},${f2(r * .1)} L${f2(r * .5)},${f2(-r * .4)} M${f2(-r * .4)},${f2(-r * .7)} L${f2(-r * .1)},${f2(r * .1)}`, stroke: '#A89C82', 'stroke-width': 1.4, fill: 'none', 'stroke-linecap': 'round' }, b); };
+    [[-24, -80, 15, 0], [4, -88, 17, 40], [26, -78, 14, 80], [-6, -70, 13, 120], [-60, -6, 12, 30], [56, -4, 11, 200]].forEach(([x, y, r, rot]) => ball(x, y, r, rot));
+    E('rect', { x: -44, y: -78, width: 88, height: 7, rx: 3.5, fill: '#8A5E36' }, w); }
   /* --- spark transmitter (right) --- */
   const SX = 1325, SY = 420;
   E('path', { d: 'M1250,-200 V200 M1400,-200 V200', stroke: '#2A2A30', 'stroke-width': 10 }, g); E('path', { d: 'M1262,-200 V200', stroke: '#B5302A', 'stroke-width': 8 }, g);
@@ -1125,7 +1254,7 @@ function bgWireless(parent, o = {}) {
   { const h = G(g); tf(h, 1100, 300); E('rect', { x: -4, y: -46, width: 8, height: 14, fill: '#B88E3A' }, h); E('path', { d: 'M-26,10 Q-26,-38 0,-38 Q26,-38 26,10', stroke: '#2A2622', 'stroke-width': 6, fill: 'none' }, h);
     [-1, 1].forEach(s => { E('rect', { x: s * 26 - 11, y: 0, width: 22, height: 30, rx: 9, fill: '#3A3436' }, h); E('rect', { x: s * 26 - 7, y: 4, width: 14, height: 22, rx: 6, fill: '#555' }, h); });
     E('path', { d: 'M26,30 Q40,90 10,120', stroke: '#B5302A', 'stroke-width': 3, fill: 'none' }, h); }
-  itrVignette(g, .5, .42);
+  if (o.vignette !== false) g.vignette = itrVignette(g, .5, .42);
   /* --- FRONT: desk with apparatus + pile (desk group lowered by 46 px) --- */
   const F = G(g.front); tf(F, 0, 46);
   E('rect', { x: 412, y: 586, width: 708, height: 18, rx: 4, fill: '#A0703F' }, F); E('rect', { x: 412, y: 586, width: 708, height: 5, rx: 2, fill: '#C08E5A' }, F);
@@ -1143,9 +1272,23 @@ function bgWireless(parent, o = {}) {
   const pul = []; { const d = G(F); tf(d, 912, 588); E('rect', { x: -42, y: -48, width: 84, height: 48, rx: 4, fill: '#6B4426' }, d); E('rect', { x: -14, y: -40, width: 28, height: 16, rx: 3, fill: '#2A2A30' }, d);
     [-28, 28].forEach(x => { const p = G(d); tf(p, x, -64); E('circle', { r: 14, fill: '#9AA0A8' }, p); E('circle', { r: 4, fill: '#3A3E44' }, p); E('rect', { x: -1.5, y: -14, width: 3, height: 28, fill: '#5A6068' }, p); pul.push(p); });
     E('path', { d: 'M-28,-78 H28 M-28,-50 H28', stroke: '#3A3E44', 'stroke-width': 1.5 }, d); }
-  /* Morse key */
-  const keyLever = G(F); { const k = G(F); tf(k, 850, 586); E('rect', { x: -40, y: -12, width: 80, height: 12, rx: 3, fill: '#5A3820' }, k); E('rect', { x: -14, y: -18, width: 10, height: 8, fill: '#B88E3A' }, k); }
-  E('rect', { x: -32, y: -6, width: 58, height: 6, rx: 3, fill: '#C9A045' }, keyLever); E('ellipse', { cx: 30, cy: -6, rx: 11, ry: 6, fill: '#1E1A1C' }, keyLever);
+  /* Morse key (the hero prop): pale marble plate, ebonite block, bright brass
+     lever pivoting at (716,552), big black knob, contact spark when pressed */
+  E('rect', { x: 686, y: 586, width: 182, height: 4, rx: 2, fill: '#000', 'fill-opacity': .25 }, F);
+  E('rect', { x: 690, y: 575, width: 172, height: 11, rx: 3, fill: '#DCD4C2' }, F); E('rect', { x: 690, y: 575, width: 172, height: 3, rx: 1.5, fill: '#F4EEE2' }, F);
+  E('rect', { x: 700, y: 567, width: 152, height: 9, rx: 2, fill: '#1E1C22' }, F);
+  [[696, 579], [856, 579]].forEach(([x, y]) => E('circle', { cx: x, cy: y, r: 2.5, fill: '#B88E3A' }, F));
+  E('rect', { x: 708, y: 548, width: 16, height: 20, rx: 2, fill: '#C9A045' }, F); E('rect', { x: 708, y: 548, width: 5, height: 20, fill: '#F0D27E' }, F);
+  E('path', { d: 'M762,567 l-5,-2.5 l10,-2.5 l-10,-2.5 l10,-2.5 l-5,-1.5', stroke: '#B8BEC8', 'stroke-width': 1.6, fill: 'none' }, F);
+  E('rect', { x: 806, y: 559, width: 10, height: 9, rx: 1.5, fill: '#B8BEC8' }, F); E('rect', { x: 808, y: 557, width: 6, height: 3, fill: '#E6EAF0' }, F);
+  const keyLever = G(F);
+  E('rect', { x: 704, y: 546, width: 142, height: 11, rx: 4, fill: '#E2B84A' }, keyLever); E('rect', { x: 708, y: 547, width: 134, height: 3, rx: 1.5, fill: '#FFE9A8' }, keyLever);
+  E('rect', { x: 706, y: 554, width: 138, height: 3, rx: 1.5, fill: '#9A7430' }, keyLever);
+  E('circle', { cx: 716, cy: 552, r: 5.5, fill: '#F0D27E' }, keyLever); E('circle', { cx: 716, cy: 552, r: 2.2, fill: '#7A5A1E' }, keyLever);
+  E('rect', { x: 832, y: 538, width: 8, height: 10, fill: '#2A2628' }, keyLever);
+  E('ellipse', { cx: 836, cy: 534, rx: 19, ry: 10, fill: '#1A1618' }, keyLever); E('ellipse', { cx: 829, cy: 530, rx: 8, ry: 3.2, fill: '#5E585C' }, keyLever);
+  const keySpark = G(F); tf(keySpark, 811, 562); E('circle', { r: 13, fill: '#BDE6FF', 'fill-opacity': .45 }, keySpark); E('path', { d: 'M0,-12 L2,-2 L12,0 L2,2 L0,12 L-2,2 L-12,0 L-2,-2 Z', fill: '#FFFFFF' }, keySpark); op(keySpark, 0);
+  let keyD = 0;
   /* paper spike + growing pile */
   E('path', { d: 'M640,586 V530', stroke: '#9AA0A8', 'stroke-width': 3 }, F); E('ellipse', { cx: 640, cy: 586, rx: 14, ry: 4, fill: '#3A3436' }, F);
   [0, 1, 2, 3, 4].forEach(i => itrForm(F, 640, 548 - i * 4 + 6, (hash(i * 3) - .5) * 30, .7, i === 2 ? '#E8A0A0' : '#9FB4C8'));
@@ -1157,8 +1300,8 @@ function bgWireless(parent, o = {}) {
   g.setClock = (h, m) => { const mm = (h % 12) * 60 + m; hHand.setAttribute('transform', `translate(${CK[0]},${CK[1]}) rotate(${f2(mm / 2)})`); mHand.setAttribute('transform', `translate(${CK[0]},${CK[1]}) rotate(${f2(m * 6)})`); };
   g.setPile = k => { pileK = clamp(k); const n = Math.round(pileK * sheets.length); sheets.forEach((s, i) => op(s.f, i < n ? 1 : 0)); };
   g.setSpark = k => { sparkK = clamp(k); };
-  g.setKey = d => { keyLever.setAttribute('transform', `translate(850,${f2(578 + 4 * clamp(d))}) rotate(${f2(3 * clamp(d))})`); };
-  g.anchors = { seat: [760, 765], pile: [520, 642], key: [850, 634], tube: [120, 330], basket: [140, 390], spark: [SX, SY], clock: CK, porthole: PH, floorPile: [170, 700] };
+  g.setKey = d => { keyD = clamp(d); keyLever.setAttribute('transform', `rotate(${f2(3.2 * keyD)} 716 552)`); };
+  g.anchors = { seat: [760, 765], pile: [520, 642], key: [836, 572], tube: [120, 330], basket: [140, 390], wasteBasket: [360, 820], spark: [SX, SY], clock: CK, porthole: PH, floorPile: [170, 700] };
   g.anim = at => {
     A.forEach(f => f(at));
     op(lampG, .85 + .15 * wob(at * 1.5, 3));
@@ -1166,11 +1309,12 @@ function bgWireless(parent, o = {}) {
     const fr = Math.floor(at * 24), k = sparkK;
     tf(disc, SX, SY, (at * 900) % 360);
     let lit = 0;
-    bolts.forEach((b, i) => { const on = hash(fr * 1.31 + i * 7.7) < .25 + k * .7; if (!on) { op(b, 0); return; } lit++;
+    op(keySpark, keyD > .6 ? .55 + .45 * hash(fr * 2.3 + 1) : 0);
+    bolts.forEach((b, i) => { const on = k > 0 && hash(fr * 1.31 + i * 7.7) < .2 + k * .75; if (!on) { op(b, 0); if (i < 2) op(boltsC[i], 0); return; } lit++;
       const s = i % 2 ? 1 : -1, a = (i > 1 ? .45 : .12) * (hash(fr * .3 + i) > .5 ? 1 : -1), x0 = SX + s * 98, x1 = SX + s * Math.cos(a) * 66, y1 = SY + Math.sin(a) * 66, n = 6; let d = `M${x0},${SY}`;
       for (let j = 1; j <= n; j++) { const t = j / n; d += ` L${f2(lerp(x0, x1, t) + (j < n ? (hash(fr * 1.7 + i * 5 + j) - .5) * 8 : 0))},${f2(lerp(SY, y1, t) + (j < n ? (hash(fr + i * 13 + j * 3.7) - .5) * 30 * (.4 + k) : 0))}`; }
       b.setAttribute('d', d); op(b, .7 + .3 * k); if (boltsC[i % 2]) { boltsC[i % 2].setAttribute('d', d); op(boltsC[i % 2], .6 * k); } });
-    op(sparkGlow, clamp((.3 + .7 * k) * (lit ? 1 : .4) * (.7 + .3 * hash(fr * .7)))); cores.forEach((c, i) => op(c, lit ? clamp(k * (.5 + .5 * hash(fr * 3.1 + i))) : 0)); op(roomFlash, clamp(k * (lit > 1 ? 1 : .3) * (.6 + .4 * hash(fr * 1.9))));
+    op(sparkGlow, k > 0 ? clamp((.3 + .7 * k) * (lit ? 1 : .4) * (.7 + .3 * hash(fr * .7))) : 0); cores.forEach((c, i) => op(c, lit ? clamp(k * (.5 + .5 * hash(fr * 3.1 + i))) : 0)); op(roomFlash, clamp(k * (lit > 1 ? 1 : .3) * (.6 + .4 * hash(fr * 1.9))));
     pul.forEach((p, i) => p.setAttribute('transform', `translate(${i ? 28 : -28},-64) rotate(${f2((at * 60) % 360)})`));
     /* paper flutter */
     pinned.forEach(p => tf(p.f, p.x, p.y, p.r + 3 * Math.sin(at * 2.6 + p.ph) * Math.max(0, Math.sin(at * .7 + p.ph))));
@@ -1183,15 +1327,51 @@ function bgWireless(parent, o = {}) {
   return g;
 }
 
+/* a loose telephone handset (origin = grip centre, earpiece up); the cord
+   attaches at (0,22).  Shared by bgCrowsNest and bgBridge. */
+function itrHandset(p) {
+  const h = G(p);
+  E('rect', { x: -7, y: -19, width: 14, height: 38, rx: 6, fill: '#2A2622' }, h); E('rect', { x: -4.5, y: -15, width: 3, height: 28, rx: 1.5, fill: '#5A5458' }, h);
+  E('ellipse', { cx: 0, cy: -20, rx: 10.5, ry: 7, fill: '#1E1A1C' }, h); E('ellipse', { cx: -3, cy: -22, rx: 4, ry: 2, fill: '#5A5458' }, h);
+  E('ellipse', { cx: 0, cy: 19, rx: 9.5, ry: 6.5, fill: '#1E1A1C' }, h);
+  return h;
+}
+/* wires g.makeHandset / g.setHandset / g.setCord for a wall phone whose
+   hooked receiver is `hook` and whose cord leaves the box at `socket` [x,y] */
+function itrPhoneLink(g, hook, socket) {
+  const cord = G(g.over); const c1 = E('path', { stroke: '#1E1A1C', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round' }, cord);
+  const c2 = E('path', { stroke: '#5A5458', 'stroke-width': 2, fill: 'none', 'stroke-dasharray': '1.5 3.5' }, cord); op(cord, 0);
+  const hs = []; let manual = null, lifted = 0;
+  g.makeHandset = p => { const h = itrHandset(p); hs.push(h); return h; };
+  g.setHandset = k => { lifted = k > .5 ? 1 : 0; op(hook, lifted ? 0 : 1); };
+  g.setCord = pt => { manual = pt || null; };
+  return at => {
+    let e = manual;
+    if (!e && lifted) for (let i = 0; i < hs.length && !e; i++) { const h = hs[i]; if (!h.isConnected) continue;
+      const a = h.getCTM && h.getCTM(), b = g.getCTM && g.getCTM(); if (!a || !b) continue;
+      const m = b.inverse().multiply(a); e = [m.c * 22 + m.e, m.d * 22 + m.f]; }
+    if (!lifted || !e) { op(cord, 0); return; }
+    const sx = socket[0], sy = socket[1], dx = e[0] - sx, mx = (sx + e[0]) / 2, my = Math.max(sy, e[1]) + 34 + Math.abs(dx) * .18 + Math.sin(at * 1.8) * 3;
+    const d = `M${f2(sx)},${f2(sy)} Q${f2(mx)},${f2(my)} ${f2(e[0])},${f2(e[1])}`; c1.setAttribute('d', d); c2.setAttribute('d', d); op(cord, 1);
+  };
+}
+
 /* =====================================================================
    5) bgCrowsNest(parent, o) — high on the foremast, moonless night.
-   g.front = the front wall of the basket (hides the lookouts' legs):
-   add the two lookouts, then g.raiseFront().
+   Lookouts → g.mid (g.front = the basket wall, hides their legs).
+   g.far              far layer inside the swaying sky/sea, behind rigging, mast
+                      and nest: put the iceberg here (at anchors.ahead)
    g.setBell(deg)     swing the bell (e.g. swing(t, t0, 25, 14, 1.2))
-   g.setHandset(k)    1 = handset lifted off the phone box (hidden from hook)
-   g.anchors = { lookouts:[[610,820],[1000,820]], bell:[930,330], bellRope:[934,478],
-                 phone:[800,548], handset:[846,552], rim:722, horizon:470, ahead:[800,470] }
-   The sky/sea sway gently (the nest stays put).
+   g.setHandset(k)    k > .5: receiver off the hook (hook copy hidden, cord shown)
+   g.makeHandset(p)   → loose receiver group (origin = grip, earpiece up) to put in
+                      a hand, e.g. tf(g.makeHandset(lookout.propL), 0, 0, -20); while
+                      setHandset(1) the cord from the box follows it automatically
+   g.setCord([x,y])   force the cord end (set coordinates); null = auto again
+   g.anchors = { lookouts:[[610,820],[1000,820]], phoneSpot:[895,820] (stand here to use the
+     phone, right of the box), bell:[930,330], bellRope:[934,478], phone:[800,548],
+     handset:[847,565] (hooked receiver), rim:722, horizon:470,
+     ahead:[1180,470] (= aheadR), aheadL:[420,470]  (iceberg spots on the horizon, clear of the mast) }
+   The sky/sea (and g.far) sway gently; the nest stays put.
    ===================================================================== */
 function bgCrowsNest(parent, o = {}) {
   const g = G(parent), A = []; itrFront(g, parent);
@@ -1208,6 +1388,8 @@ function bgCrowsNest(parent, o = {}) {
   { let d = ''; for (let i = 0; i < 70; i++) { const x = -400 + hash(i * 5.3) * 2400, y = HZ + 6 + Math.pow(hash(i * 2.1), 1.6) * 420, w = 4 + hash(i * 1.1) * 14 * (1 + (y - HZ) / 200); d += `M${f2(x)},${f2(y)} h${f2(w)} `; }
     E('path', { d, stroke: '#C9D6FF', 'stroke-opacity': .22, 'stroke-width': 1.5 }, bgW); }
   const shipLt = G(bgW); E('circle', { cx: 1380, cy: HZ - 3, r: 2, fill: '#FFE7A8' }, shipLt); E('circle', { cx: 1386, cy: HZ - 5, r: 1.6, fill: '#FFF2D0' }, shipLt); E('circle', { cx: 1392, cy: HZ - 3, r: 1.4, fill: '#E84855' }, shipLt);
+  /* far layer: the iceberg goes here (sways with the sea, behind rigging, mast and nest) */
+  g.far = G(bgW);
   /* rigging */
   const rig = G(g);
   E('path', { d: 'M790,-300 L-300,860 M780,-200 L-300,640 M810,-300 L1900,860 M820,-200 L1900,640', stroke: '#2A2F45', 'stroke-width': 4 }, rig);
@@ -1246,7 +1428,7 @@ function bgCrowsNest(parent, o = {}) {
   E('ellipse', { cx: 0, cy: 66, rx: 32, ry: 5, fill: '#8A6526' }, bellIn); E('circle', { cx: 0, cy: 72, r: 6, fill: '#5A4632' }, bellIn);
   E('path', { d: 'M0,74 Q10,110 4,150', stroke: '#C8B48A', 'stroke-width': 3.5, fill: 'none' }, bellIn);
   /* starlight rim light on the whole nest */
-  itrVignette(g, .5, .5);
+  if (o.vignette !== false) g.vignette = itrVignette(g, .5, .5);
   /* --- FRONT: basket wall (painted steel cylinder) --- */
   const F = g.front;
   const body = 'M368,650 A432,72 0 0 0 1232,650 V1120 H368 Z';
@@ -1262,9 +1444,10 @@ function bgCrowsNest(parent, o = {}) {
   { let d = ''; for (let k = 0; k < 46; k++) { const t = hash(k * 3.7), a = Math.PI * t, x = 800 - Math.cos(a) * 432, y = 646 + Math.sin(a) * 72 + (hash(k) - .5) * 10; d += `M${f2(x)},${f2(y)} m-1.6,0 a1.6,1.6 0 1 0 3.2,0 a1.6,1.6 0 1 0 -3.2,0 `; }
     E('path', { d, fill: '#FFFFFF', 'fill-opacity': .8 }, F); }
   g.setBell = deg => bell.setAttribute('transform', `translate(930,330) rotate(${f2(deg)})`);
-  g.setHandset = k => op(handset, k > .5 ? 0 : 1);
-  g.anchors = { lookouts: [[610, 820], [1000, 820]], bell: [930, 330], bellRope: [934, 478], phone: [800, 548], handset: [846, 552], rim: 722, horizon: HZ, ahead: [800, HZ] };
-  g.anim = at => { A.forEach(f => f(at)); op(mLight, .85 + .15 * wob(at * 1.3, 7)); bgW.setAttribute('transform', `rotate(${f2(Math.sin(at * .45) * .5)} 800 700) translate(0,${f2(Math.sin(at * .6 + 1) * 4)})`);
+  const cordAnim = itrPhoneLink(g, handset, [846, 536]);
+  g.anchors = { lookouts: [[610, 820], [1000, 820]], phoneSpot: [895, 820], bell: [930, 330], bellRope: [934, 478], phone: [800, 548], handset: [847, 565], rim: 722, horizon: HZ,
+    ahead: [1180, HZ], aheadL: [420, HZ], aheadR: [1180, HZ] };
+  g.anim = at => { A.forEach(f => f(at)); cordAnim(at); op(mLight, .85 + .15 * wob(at * 1.3, 7)); bgW.setAttribute('transform', `rotate(${f2(Math.sin(at * .45) * .5)} 800 700) translate(0,${f2(Math.sin(at * .6 + 1) * 4)})`);
     rig.setAttribute('transform', `translate(${f2(Math.sin(at * .45) * 3)},0)`); op(shipLt, .5 + .5 * Math.max(0, Math.sin(at * 1.3))); };
   g.setBell(0); g.anim(0);
   return g;
@@ -1272,24 +1455,34 @@ function bgCrowsNest(parent, o = {}) {
 
 /* =====================================================================
    6) bgBridge(parent, o) — the bridge at night.
-   g.front holds the ship's wheel on its pedestal: put the helmsman at
-   anchors.helm, then g.raiseFront().
-   g.setWheel(deg)      wheel rotation (positive = clockwise)
-   g.setTelegraph(v)    -1 full astern .. 0 stop .. 1 full ahead (handle + pointer)
-   g.telegraphGrip()    → [x,y] of the telegraph handle grip (for a hand)
-   g.anchors = { helm:[560,792], wheel:[560,560], telegraph:[1180,440], officer:[1050,800],
-                 binnacle:[860,800], captain:[860,805], phone:[118,350], phoneMan:[200,800], window:[800,300] }
+   Officers → g.mid; g.front = the ship's wheel (in front of the helmsman,
+   hub at his chest, rim below his chin).
+   g.far              far layer behind the forecastle, mast and window frames: the iceberg
+   g.setWheel(deg)    wheel rotation (+ = clockwise)
+   g.wheelGrip(i)     → [x,y] on the rim for hand i (0 = left, 1 = right); follows setWheel
+   g.setTelegraph(v)  -1 full astern .. 0 stop .. 1 full ahead (red pointer + side lever)
+   g.telegraphGrip()  → [x,y] of the lever's grip, on the officer's side of the dial:
+                      up = ahead, level = stop, down = astern (always within reach of anchors.officer)
+   g.setHandset(k) / g.makeHandset(p) / g.setCord(pt)   as in bgCrowsNest (wall phone "CROW'S NEST")
+   g.anchors = { helm:[520,792], wheel:[520,650] (hub), wheelR:95, telegraph:[1290,590] (dial centre),
+     officer:[1100,800] (reaches the grip with hR), binnacle:[790,800], captain:[950,805],
+     phone:[80,430], phoneHandset:[139,430], phoneMan:[215,800], window:[835,300],
+     iceberg:[925,352] (centre window, clear of mast and pillars), ahead:[800,352] (dead ahead,
+     behind the mast), horizon:352 }   all characters at s:1
    ===================================================================== */
 function bgBridge(parent, o = {}) {
   const g = G(parent), A = []; itrFront(g, parent);
   const FL = 652, HZ = 352;
-  /* view through the windows */
+  /* ---------- view through the windows (sways a little) ---------- */
   const view = G(g);
-  E('rect', { x: -200, y: -200, width: 2000, height: HZ + 200, fill: lgrad([[0, '#03050D'], [.7, '#0A1230'], [1, '#18244C']]) }, view);
+  E('rect', { x: -1000, y: -900, width: 3600, height: HZ + 900, fill: lgrad([[0, '#03050D'], [.75, '#0A1230'], [1, '#18244C']]) }, view);
   const st = itrStars(view, -200, -100, 2000, HZ + 80, 300, 5, { pow: 1.2 }); A.push(st.anim);
-  E('rect', { x: -200, y: HZ, width: 2000, height: 400, fill: lgrad([[0, '#060A16'], [1, '#020308']]) }, view);
-  E('rect', { x: -200, y: HZ - 1, width: 2000, height: 2, fill: '#34447A', 'fill-opacity': .55 }, view);
+  E('ellipse', { cx: 760, cy: 40, rx: 1100, ry: 90, fill: rgrad([[0, '#9FB2E8', .14], [.6, '#9FB2E8', .04], [1, '#9FB2E8', 0]]), transform: 'rotate(-14 760 40)' }, view);
+  E('rect', { x: -1000, y: HZ, width: 3600, height: 900, fill: lgrad([[0, '#060A16'], [1, '#020308']]) }, view);
+  E('rect', { x: -1000, y: HZ - 1, width: 3600, height: 2, fill: '#34447A', 'fill-opacity': .55 }, view);
   { let d = ''; for (let i = 0; i < 50; i++) { const x = -200 + hash(i * 4.7) * 2000, y = HZ + 6 + Math.pow(hash(i * 1.3), 1.5) * 120; d += `M${f2(x)},${f2(y)} h${f2(5 + hash(i) * 12)} `; } E('path', { d, stroke: '#C9D6FF', 'stroke-opacity': .2, 'stroke-width': 1.4 }, view); }
+  /* far layer: the iceberg goes here (behind the forecastle, the mast and the window frames) */
+  g.far = G(view);
   /* forecastle + foremast seen ahead */
   E('path', { d: 'M180,520 L760,392 Q800,384 840,392 L1420,520 Z', fill: '#1C1E28' }, view);
   E('path', { d: 'M260,506 L770,398 Q800,392 830,398 L1340,506 Z', fill: '#3A3226' }, view);
@@ -1299,43 +1492,48 @@ function bgBridge(parent, o = {}) {
   E('path', { d: 'M800,100 L470,470 M800,100 L1130,470 M800,92 L800,-200', stroke: '#2A2F45', 'stroke-width': 2 }, view);
   E('path', { d: 'M772,176 H828 L822,204 H778 Z', fill: '#5A4A38' }, view); E('rect', { x: 768, y: 172, width: 64, height: 6, rx: 2, fill: '#7A6448' }, view);
   [[520, 458], [1080, 458], [700, 410], [900, 410]].forEach(([x, y]) => E('rect', { x: x - 12, y: y - 8, width: 24, height: 12, rx: 3, fill: '#2A2A30' }, view));
-  /* window frames */
-  E('rect', { x: -200, y: -200, width: 2000, height: 318, fill: '#3A3036' }, g);
+  /* ---------- window frames: left wall -200..190, pillars, centre pane 630..1040 ---------- */
+  E('rect', { x: -1000, y: -900, width: 3600, height: 1018, fill: '#3A3036' }, g);
   E('rect', { x: -200, y: -200, width: 2000, height: 318, fill: lgrad([[0, '#000', .4], [1, '#000', 0]]) }, g);
   { let d = ''; for (let x = -200; x < 1800; x += 110) d += `M${x},-200 h40 v300 h-40 Z `; E('path', { d, fill: '#2E262A' }, g); }
-  E('rect', { x: -200, y: 104, width: 2000, height: 22, fill: '#6B4A30' }, g); E('rect', { x: -200, y: 104, width: 2000, height: 4, fill: '#8E6440' }, g);
-  E('rect', { x: -200, y: 470, width: 2000, height: 30, fill: '#6B4A30' }, g); E('rect', { x: -200, y: 470, width: 2000, height: 5, fill: '#9A6E48' }, g);
-  [[-200, 180], [300, 30], [560, 30], [1010, 30], [1270, 30], [1660, 160]].forEach(([x, w]) => { E('rect', { x, y: 120, width: w, height: 352, fill: '#6B4A30' }, g); E('rect', { x, y: 120, width: 5, height: 352, fill: '#8E6440' }, g);
-    E('rect', { x: x + w - 6, y: 120, width: 6, height: 352, fill: '#4E3422' }, g); });
-  [[-20, 320], [330, 230], [590, 420], [1040, 230], [1300, 360]].forEach(([x, w]) => E('path', { d: `M${x + 30},460 L${x + w * .55},130`, stroke: '#9FB4E8', 'stroke-opacity': .07, 'stroke-width': 26 }, g));
-  /* lower wall + ceiling lamp */
-  E('rect', { x: -200, y: 500, width: 2000, height: 154, fill: '#5A3C28' }, g);
+  E('rect', { x: -1000, y: 104, width: 3600, height: 22, fill: '#6B4A30' }, g); E('rect', { x: -1000, y: 104, width: 3600, height: 4, fill: '#8E6440' }, g);
+  E('rect', { x: -1000, y: 470, width: 3600, height: 30, fill: '#6B4A30' }, g); E('rect', { x: -1000, y: 470, width: 3600, height: 5, fill: '#9A6E48' }, g);
+  const PIL = [[-1000, 1190], [400, 30], [600, 30], [1040, 30], [1290, 30], [1600, 1000]];
+  PIL.forEach(([x, w]) => { E('rect', { x, y: 120, width: w, height: 352, fill: '#6B4A30' }, g); E('rect', { x: x + w - 6, y: 120, width: 6, height: 352, fill: '#4E3422' }, g); if (x > -900) E('rect', { x, y: 120, width: 5, height: 352, fill: '#8E6440' }, g); });
+  { let d = ''; for (let x = 0; x < 190; x += 46) d += `M${x},130 h38 v330 h-38 Z `; E('path', { d, fill: '#5E4028' }, g); }
+  [[190, 210], [430, 170], [630, 410], [1070, 220], [1320, 280]].forEach(([x, w]) => E('path', { d: `M${x + 24},462 L${f2(x + w * .62)},130`, stroke: '#9FB4E8', 'stroke-opacity': .07, 'stroke-width': 24 }, g));
+  /* ---------- lower wall, floor ---------- */
+  E('rect', { x: -1000, y: 500, width: 3600, height: 154, fill: '#5A3C28' }, g);
   for (let x = -190; x < 1800; x += 120) { E('rect', { x: x + 8, y: 516, width: 104, height: 116, rx: 3, fill: '#4E3422' }, g); E('rect', { x: x + 14, y: 522, width: 92, height: 104, rx: 2, fill: '#644430' }, g); E('rect', { x: x + 14, y: 522, width: 92, height: 3, fill: '#80583C' }, g); }
-  E('rect', { x: -200, y: 636, width: 2000, height: 18, fill: '#3A2618' }, g);
-  /* floor: teak planks */
-  E('rect', { x: -200, y: FL, width: 2000, height: 460, fill: '#7A5236' }, g);
+  E('rect', { x: -1000, y: 636, width: 3600, height: 18, fill: '#3A2618' }, g);
+  E('rect', { x: -1000, y: FL, width: 3600, height: 900, fill: '#7A5236' }, g);
   { const X = (xa, y) => 800 + (xa - 800) * (y - 150) / (FL - 150); let d = '';
     for (let xa = -1300; xa < 2900; xa += 64) d += `M${f2(X(xa, FL))},${FL} L${f2(X(xa, 1110))},1110 `;
     E('path', { d, stroke: '#5E3E28', 'stroke-width': 3 }, g); let b = ''; for (let i = 0; i < 40; i++) { const xa = -1200 + Math.floor(hash(i * 3.1) * 62) * 64, y = FL + 20 + hash(i * 5.7) * 400; b += `M${f2(X(xa, y))},${f2(y)} L${f2(X(xa + 64, y))},${f2(y)} `; }
     E('path', { d: b, stroke: '#5E3E28', 'stroke-width': 2.5 }, g); }
-  E('rect', { x: -200, y: FL, width: 2000, height: 460, fill: lgrad([[0, '#0A0E20', .55], [1, '#0A0E20', .25]]) }, g);
+  E('rect', { x: -1000, y: FL, width: 3600, height: 900, fill: lgrad([[0, '#0A0E20', .55], [1, '#0A0E20', .25]]) }, g);
   /* hanging lamp */
   const lamp = itrGlow(g, 860, 420, 520, 360, '#FFD28A', .3);
   E('path', { d: 'M860,-200 V40', stroke: '#1E1A1C', 'stroke-width': 3 }, g);
   E('path', { d: 'M826,70 Q828,40 860,38 Q892,40 894,70 Z', fill: '#2E3A36' }, g); E('ellipse', { cx: 860, cy: 72, rx: 14, ry: 5, fill: '#FFE7A8' }, g);
-  /* wall telephone + voice pipes (left pillar) */
-  { const p = G(g); tf(p, 118, 350);
+  /* ---------- wall telephone to the crow's nest (left wall) + voice pipes ---------- */
+  const PHX = 80, PHY = 430;
+  { const p = G(g); tf(p, PHX, PHY);
+    E('rect', { x: -46, y: -66, width: 100, height: 140, rx: 8, fill: '#000', 'fill-opacity': .25 }, p);
     E('rect', { x: -50, y: -70, width: 100, height: 140, rx: 8, fill: '#7E5230' }, p); E('rect', { x: -42, y: -62, width: 84, height: 124, rx: 6, fill: '#946440' }, p);
     [-18, 18].forEach(x => { E('circle', { cx: x, cy: -48, r: 13, fill: '#C9A045' }, p); E('circle', { cx: x - 4, cy: -52, r: 4, fill: '#F0D27E' }, p); });
     E('rect', { x: -24, y: -22, width: 48, height: 40, rx: 6, fill: '#2A2622' }, p); E('circle', { cx: 0, cy: -2, r: 12, fill: '#1A1614' }, p);
-    E('path', { d: 'M50,0 h14 v26', stroke: '#B88E3A', 'stroke-width': 6, fill: 'none', 'stroke-linecap': 'round' }, p); E('circle', { cx: 64, cy: 30, r: 6, fill: '#2A2622' }, p);
-    E('rect', { x: -66, y: -24, width: 14, height: 50, rx: 6, fill: '#2A2622' }, p); E('ellipse', { cx: -59, cy: -24, rx: 11, ry: 8, fill: '#1E1A1C' }, p); E('ellipse', { cx: -59, cy: 26, rx: 10, ry: 7, fill: '#1E1A1C' }, p);
-    E('path', { d: 'M-59,30 Q-70,80 -40,96', stroke: '#1E1A1C', 'stroke-width': 4, fill: 'none' }, p);
+    E('path', { d: 'M-50,0 h-14 v26', stroke: '#B88E3A', 'stroke-width': 6, fill: 'none', 'stroke-linecap': 'round' }, p); E('circle', { cx: -64, cy: 30, r: 6, fill: '#2A2622' }, p);
+    E('rect', { x: 50, y: -16, width: 10, height: 12, fill: '#B88E3A' }, p);
     TX(p, 0, 50, 'CROW\'S NEST', 10, '#F0D27E', { a: 'middle', w: 800, ls: .5 }); }
-  [[230, 300], [262, 330]].forEach(([x, y]) => { E('path', { d: `M${x},-200 V${y}`, stroke: '#B88E3A', 'stroke-width': 14 }, g); E('path', { d: `M${x - 4},-200 V${y}`, stroke: '#E2BE62', 'stroke-width': 3 }, g);
+  const phoneHook = G(g); tf(phoneHook, PHX + 59, PHY);
+  E('path', { d: 'M-9,-26 Q-18,0 -2,22', stroke: '#1E1A1C', 'stroke-width': 4, fill: 'none' }, phoneHook);
+  itrHandset(phoneHook);
+  [[150, 312], [174, 340]].forEach(([x, y]) => { E('path', { d: `M${x},-200 V${y}`, stroke: '#B88E3A', 'stroke-width': 14 }, g); E('path', { d: `M${x - 4},-200 V${y}`, stroke: '#E2BE62', 'stroke-width': 3 }, g);
     E('path', { d: `M${x - 14},${y + 22} Q${x},${y - 6} ${x + 14},${y + 22} Z`, fill: '#C9A045' }, g); E('ellipse', { cx: x, cy: y + 22, rx: 14, ry: 5, fill: '#3A2A10' }, g); });
-  /* compass binnacle */
-  { const b = G(g); tf(b, 860, 800);
+  /* ---------- compass binnacle (brass hood, Kelvin spheres) ---------- */
+  const BX = 790;
+  { const b = G(g); tf(b, BX, 800);
     E('ellipse', { cx: 0, cy: 6, rx: 110, ry: 16, fill: '#000', 'fill-opacity': .3 }, b);
     E('path', { d: 'M-70,0 L-44,-200 H44 L70,0 Z', fill: '#7A5236' }, b); E('path', { d: 'M20,-200 H44 L70,0 H34 Z', fill: '#000', 'fill-opacity': .18 }, b);
     E('rect', { x: -76, y: -14, width: 152, height: 14, rx: 4, fill: '#5E3E28' }, b);
@@ -1346,77 +1544,131 @@ function bgBridge(parent, o = {}) {
     E('circle', { cx: 0, cy: -300, r: 9, fill: '#B88E3A' }, b);
     [-1, 1].forEach(s => { E('path', { d: `M${s * 50},-206 H${s * 84}`, stroke: '#B88E3A', 'stroke-width': 6 }, b); E('circle', { cx: s * 98, cy: -206, r: 24, fill: '#24302C' }, b); E('circle', { cx: s * 98 - 8, cy: -214, r: 7, fill: '#5A6E66' }, b); });
     const bl = itrGlow(b, 0, -246, 70, 50, '#FFD27A', .55); A.push(at => op(bl, .8 + .2 * wob(at * 2, 5))); }
-  /* engine-order telegraph */
-  const TC = [1180, 440], TR = 104;
+  /* ---------- engine-order telegraph: dial at chest height, side lever ----------
+     the lever pivots at the dial centre and sticks out on the LEFT (towards the
+     officer): up = ahead, level = stop, down = astern; the red pointer shows the order */
+  const TC = [1290, 590], TR = 80, LR = TR + 38, ANG = v => v * 78, LANG = v => -90 + 55 * v;
   const tg = G(g);
-  E('ellipse', { cx: TC[0], cy: 806, rx: 90, ry: 14, fill: '#000', 'fill-opacity': .3 }, tg);
-  E('path', { d: `M${TC[0] - 34},800 L${TC[0] - 22},540 H${TC[0] + 22} L${TC[0] + 34},800 Z`, fill: '#B88E3A' }, tg);
-  E('path', { d: `M${TC[0] + 6},800 L${TC[0] + 8},540 H${TC[0] + 22} L${TC[0] + 34},800 Z`, fill: '#000', 'fill-opacity': .16 }, tg);
-  E('path', { d: `M${TC[0] - 22},560 V780`, stroke: '#F0D27E', 'stroke-width': 4, 'stroke-opacity': .6 }, tg);
-  E('rect', { x: TC[0] - 52, y: 784, width: 104, height: 18, rx: 6, fill: '#9A7430' }, tg);
-  const handle = G(tg);
-  E('rect', { x: -8, y: -TR - 50, width: 16, height: TR + 50, rx: 6, fill: '#9A7430' }, handle); E('rect', { x: -8, y: -TR - 50, width: 6, height: TR + 50, rx: 2, fill: '#F0D27E', 'fill-opacity': .6 }, handle);
-  E('rect', { x: -24, y: -TR - 72, width: 48, height: 26, rx: 13, fill: '#2A2622' }, handle); E('rect', { x: -19, y: -TR - 68, width: 18, height: 7, rx: 3, fill: '#5A5458' }, handle);
+  E('ellipse', { cx: TC[0], cy: 806, rx: 80, ry: 13, fill: '#000', 'fill-opacity': .3 }, tg);
+  E('path', { d: `M${TC[0] - 34},800 L${TC[0] - 20},${TC[1] + 80} H${TC[0] + 20} L${TC[0] + 34},800 Z`, fill: '#B88E3A' }, tg);
+  E('path', { d: `M${TC[0] + 6},800 L${TC[0] + 6},${TC[1] + 80} H${TC[0] + 20} L${TC[0] + 34},800 Z`, fill: '#000', 'fill-opacity': .16 }, tg);
+  E('path', { d: `M${TC[0] - 22},${TC[1] + 100} V780`, stroke: '#F0D27E', 'stroke-width': 4, 'stroke-opacity': .6 }, tg);
+  E('rect', { x: TC[0] - 50, y: 784, width: 100, height: 18, rx: 6, fill: '#9A7430' }, tg);
+  const lever = G(tg);
+  E('rect', { x: -7, y: -LR + 4, width: 14, height: LR, rx: 6, fill: '#9A7430' }, lever); E('rect', { x: -7, y: -LR + 4, width: 5, height: LR, rx: 2, fill: '#F0D27E', 'fill-opacity': .6 }, lever);
+  E('rect', { x: -22, y: -LR - 12, width: 44, height: 24, rx: 12, fill: '#2A2622' }, lever); E('rect', { x: -17, y: -LR - 8, width: 16, height: 6, rx: 3, fill: '#5A5458' }, lever);
   E('circle', { cx: TC[0], cy: TC[1], r: TR + 16, fill: '#9A7430' }, tg); E('circle', { cx: TC[0], cy: TC[1], r: TR + 10, fill: '#C9A045' }, tg);
-  E('path', { d: `M${TC[0] - TR - 6},${TC[1] - 20} A${TR + 8},${TR + 8} 0 0 1 ${TC[0] - 30},${TC[1] - TR - 4}`, stroke: '#F0D27E', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round', 'stroke-opacity': .7 }, tg);
+  E('path', { d: `M${TC[0] - TR - 6},${TC[1] - 16} A${TR + 8},${TR + 8} 0 0 1 ${TC[0] - 24},${TC[1] - TR - 4}`, stroke: '#F0D27E', 'stroke-width': 4, fill: 'none', 'stroke-linecap': 'round', 'stroke-opacity': .7 }, tg);
   E('circle', { cx: TC[0], cy: TC[1], r: TR, fill: '#F6F0E2' }, tg);
-  const SEG = [[-1, 'FULL'], [-.66, 'HALF'], [-.33, 'SLOW'], [0, 'STOP'], [.33, 'SLOW'], [.66, 'HALF'], [1, 'FULL']], ANG = v => v * 78;
-  SEG.forEach(([v, lab], i) => { const a0 = ANG(v) - 13, a1 = ANG(v) + 13, r0 = TR - 4, r1 = TR * .5;
-    const P = (a, r) => [TC[0] + Math.sin(a * Math.PI / 180) * r, TC[1] - Math.cos(a * Math.PI / 180) * r];
-    const [x0, y0] = P(a0, r0), [x1, y1] = P(a1, r0), [x2, y2] = P(a1, r1), [x3, y3] = P(a0, r1);
+  const SEG = [[-1, 'FULL'], [-.66, 'HALF'], [-.33, 'SLOW'], [0, 'STOP'], [.33, 'SLOW'], [.66, 'HALF'], [1, 'FULL']];
+  SEG.forEach(([v, lab]) => { const a0 = ANG(v) - 13, a1 = ANG(v) + 13, r0 = TR - 3, r1 = TR * .48;
+    const Pt = (a, r) => [TC[0] + Math.sin(a * Math.PI / 180) * r, TC[1] - Math.cos(a * Math.PI / 180) * r];
+    const [x0, y0] = Pt(a0, r0), [x1, y1] = Pt(a1, r0), [x2, y2] = Pt(a1, r1), [x3, y3] = Pt(a0, r1);
     E('path', { d: `M${f2(x0)},${f2(y0)} A${r0},${r0} 0 0 1 ${f2(x1)},${f2(y1)} L${f2(x2)},${f2(y2)} A${r1},${r1} 0 0 0 ${f2(x3)},${f2(y3)} Z`, fill: v < 0 ? '#F2CFC8' : v > 0 ? '#FFFFFF' : '#F7E7A8' }, tg);
-    const [tx, ty] = P(ANG(v), TR * .74); const rot = v === 0 ? 0 : (v > 0 ? ANG(v) - 90 : ANG(v) + 90);
-    const t = TX(tg, f2(tx), f2(ty + 4.5), lab, v === 0 ? 13 : 12.5, v < 0 ? '#9E2B2B' : '#1E2235', { a: 'middle', w: 800 }); t.setAttribute('transform', `rotate(${f2(rot)} ${f2(tx)} ${f2(ty)})`); });
-  { let d = ''; for (let i = 0; i < 8; i++) { const a = (-91 + i * 26) * Math.PI / 180; d += `M${f2(TC[0] + Math.sin(a) * (TR - 4))},${f2(TC[1] - Math.cos(a) * (TR - 4))} L${f2(TC[0] + Math.sin(a) * TR * .5)},${f2(TC[1] - Math.cos(a) * TR * .5)} `; } E('path', { d, stroke: '#8A7A5A', 'stroke-width': 1.5 }, tg); }
-  TX(tg, TC[0] - 46, TC[1] + 40, 'ASTERN', 12, '#9E2B2B', { a: 'middle', w: 800, ls: 1 }); TX(tg, TC[0] + 46, TC[1] + 40, 'AHEAD', 12, '#1E2235', { a: 'middle', w: 800, ls: 1 });
-  E('path', { d: `M${TC[0]},${TC[1] + 20} V${TC[1] + TR - 6}`, stroke: '#D9CFB8', 'stroke-width': 2 }, tg);
-  const pointer = G(tg); E('path', { d: `M-6,0 L0,${-TR * .47} L6,0 Z`, fill: '#B5302A' }, pointer); E('path', { d: `M-7,${-TR - 9} L0,${-TR + 3} L7,${-TR - 9} Z`, fill: '#B5302A' }, pointer);
-  E('circle', { cx: TC[0], cy: TC[1], r: 16, fill: '#9A7430' }, tg); E('circle', { cx: TC[0], cy: TC[1], r: 8, fill: '#E2BE62' }, tg);
-  E('path', { d: `M${TC[0] - TR + 18},${TC[1] - TR + 30} Q${TC[0] - 30},${TC[1] - TR + 4} ${TC[0]},${TC[1] - TR + 2}`, stroke: '#fff', 'stroke-opacity': .5, 'stroke-width': 6, fill: 'none', 'stroke-linecap': 'round' }, tg);
-  const tLamp = itrGlow(tg, TC[0], TC[1] - 40, 170, 140, '#FFD28A', .25);
-  itrVignette(g, .5, .45);
-  /* --- FRONT: the wheel --- */
-  const W = [560, 560], WR = 165;
+    const [tx, ty] = Pt(ANG(v), TR * .74); const rot = v === 0 ? 0 : (v > 0 ? ANG(v) - 90 : ANG(v) + 90);
+    const t = TX(tg, f2(tx), f2(ty + 3.6), lab, v === 0 ? 11 : 10, v < 0 ? '#9E2B2B' : '#1E2235', { a: 'middle', w: 800 }); t.setAttribute('transform', `rotate(${f2(rot)} ${f2(tx)} ${f2(ty)})`); });
+  { let d = ''; for (let i = 0; i < 8; i++) { const a = (-91 + i * 26) * Math.PI / 180; d += `M${f2(TC[0] + Math.sin(a) * (TR - 3))},${f2(TC[1] - Math.cos(a) * (TR - 3))} L${f2(TC[0] + Math.sin(a) * TR * .48)},${f2(TC[1] - Math.cos(a) * TR * .48)} `; } E('path', { d, stroke: '#8A7A5A', 'stroke-width': 1.3 }, tg); }
+  TX(tg, TC[0] - 36, TC[1] + 32, 'ASTERN', 10, '#9E2B2B', { a: 'middle', w: 800, ls: .8 }); TX(tg, TC[0] + 36, TC[1] + 32, 'AHEAD', 10, '#1E2235', { a: 'middle', w: 800, ls: .8 });
+  E('path', { d: `M${TC[0]},${TC[1] + 16} V${TC[1] + TR - 5}`, stroke: '#D9CFB8', 'stroke-width': 2 }, tg);
+  const pointer = G(tg); E('path', { d: `M-5,0 L0,${-TR * .46} L5,0 Z`, fill: '#B5302A' }, pointer); E('path', { d: `M-6,${-TR - 8} L0,${-TR + 3} L6,${-TR - 8} Z`, fill: '#B5302A' }, pointer);
+  E('circle', { cx: TC[0], cy: TC[1], r: 13, fill: '#9A7430' }, tg); E('circle', { cx: TC[0], cy: TC[1], r: 6.5, fill: '#E2BE62' }, tg);
+  E('path', { d: `M${TC[0] - TR + 15},${TC[1] - TR + 26} Q${TC[0] - 26},${TC[1] - TR + 4} ${TC[0]},${TC[1] - TR + 2}`, stroke: '#fff', 'stroke-opacity': .5, 'stroke-width': 5, fill: 'none', 'stroke-linecap': 'round' }, tg);
+  const tLamp = itrGlow(tg, TC[0], TC[1] - 30, 150, 120, '#FFD28A', .25);
+  if (o.vignette !== false) g.vignette = itrVignette(g, .5, .45);
+  /* ---------- FRONT: the ship's wheel on its pedestal ----------
+     hub at chest height of the helmsman (anchors.helm), rim top at his
+     shoulders; 8 spokes set 22.5° off vertical so no handle crosses his face */
+  const W = [520, 650], WR = 95, HLN = 28;
   const F = g.front;
-  E('ellipse', { cx: W[0], cy: 806, rx: 80, ry: 12, fill: '#000', 'fill-opacity': .3 }, F);
-  E('path', { d: `M${W[0] - 40},800 L${W[0] - 24},${W[1] + 40} H${W[0] + 24} L${W[0] + 40},800 Z`, fill: '#7A5236' }, F);
-  E('path', { d: `M${W[0] + 6},800 L${W[0] + 8},${W[1] + 40} H${W[0] + 24} L${W[0] + 40},800 Z`, fill: '#000', 'fill-opacity': .2 }, F);
-  E('rect', { x: W[0] - 46, y: 788, width: 92, height: 16, rx: 5, fill: '#5E3E28' }, F); E('rect', { x: W[0] - 30, y: W[1] + 30, width: 60, height: 20, rx: 6, fill: '#B88E3A' }, F);
+  E('ellipse', { cx: W[0], cy: 806, rx: 72, ry: 11, fill: '#000', 'fill-opacity': .3 }, F);
+  E('path', { d: `M${W[0] - 38},800 L${W[0] - 22},${W[1] + 14} H${W[0] + 22} L${W[0] + 38},800 Z`, fill: '#7A5236' }, F);
+  E('path', { d: `M${W[0] + 6},800 L${W[0] + 6},${W[1] + 14} H${W[0] + 22} L${W[0] + 38},800 Z`, fill: '#000', 'fill-opacity': .2 }, F);
+  E('rect', { x: W[0] - 46, y: 788, width: 92, height: 16, rx: 5, fill: '#5E3E28' }, F);
+  E('rect', { x: W[0] - 30, y: W[1] + 4, width: 60, height: 18, rx: 6, fill: '#B88E3A' }, F); E('rect', { x: W[0] - 30, y: W[1] + 4, width: 60, height: 5, rx: 2.5, fill: '#E2BE62' }, F);
   const wheel = G(F); const wIn = G(wheel);
-  for (let i = 0; i < 8; i++) { const a = i * 45; const sp = G(wIn, { transform: `rotate(${a})` });
-    E('rect', { x: -5, y: -WR - 46, width: 10, height: WR + 46, rx: 4, fill: '#8A5A33' }, sp);
-    E('path', { d: `M-7,${-WR - 6} Q-11,${-WR - 22} -6,${-WR - 34} Q-10,${-WR - 44} 0,${-WR - 52} Q10,${-WR - 44} 6,${-WR - 34} Q11,${-WR - 22} 7,${-WR - 6} Z`, fill: '#A06C3E' }, sp);
-    E('rect', { x: -2, y: -WR - 48, width: 3, height: 40, rx: 1.5, fill: '#C89A68' }, sp); }
-  E('circle', { r: WR, fill: 'none', stroke: '#6E4426', 'stroke-width': 26 }, wIn);
-  E('circle', { r: WR, fill: 'none', stroke: '#9A6A3E', 'stroke-width': 18 }, wIn);
-  E('circle', { r: WR - 4, fill: 'none', stroke: '#C08E5A', 'stroke-width': 3, 'stroke-opacity': .7 }, wIn);
-  E('circle', { r: WR * .55, fill: 'none', stroke: '#B88E3A', 'stroke-width': 7 }, wIn);
-  E('circle', { r: 34, fill: '#B88E3A' }, wIn); E('circle', { r: 22, fill: '#E2BE62' }, wIn); E('circle', { r: 9, fill: '#8A6526' }, wIn);
-  E('path', { d: `M${-WR * .7},${-WR * .55} A${WR * .9},${WR * .9} 0 0 1 ${-WR * .1},${-WR * .89}`, stroke: '#E8B888', 'stroke-width': 4, fill: 'none', 'stroke-opacity': .5 }, wheel);
-  let tv = 0;
-  g.setWheel = deg => wheel.setAttribute('transform', `translate(${W[0]},${W[1]}) rotate(${f2(deg)})`);
-  g.setTelegraph = v => { tv = clamp(v, -1, 1); const a = ANG(tv); pointer.setAttribute('transform', `translate(${TC[0]},${TC[1]}) rotate(${f2(a)})`); handle.setAttribute('transform', `translate(${TC[0]},${TC[1]}) rotate(${f2(a)})`); };
-  g.telegraphGrip = () => { const a = ANG(tv) * Math.PI / 180, r = TR + 59; return [TC[0] + Math.sin(a) * r, TC[1] - Math.cos(a) * r]; };
-  g.anchors = { helm: [560, 792], wheel: W, telegraph: TC, officer: [1050, 800], binnacle: [860, 800], captain: [860, 805], phone: [118, 350], phoneMan: [200, 800], window: [800, 300] };
-  g.anim = at => { A.forEach(f => f(at)); op(lamp, .85 + .15 * wob(at * 1.2, 2)); op(tLamp, .8 + .2 * wob(at * 1.7, 4)); tf(view, Math.sin(at * .3) * 3, Math.sin(at * .5) * 2); };
+  for (let i = 0; i < 8; i++) { const sp = G(wIn, { transform: `rotate(${22.5 + i * 45})` });
+    E('rect', { x: -4.5, y: -WR - 6, width: 9, height: WR + 6, rx: 3.5, fill: '#8A5A33' }, sp);
+    E('path', { d: `M-6,${-WR - 4} Q-9,${-WR - 13} -5,${-WR - 19} Q-8,${-WR - 25} 0,${-WR - HLN} Q8,${-WR - 25} 5,${-WR - 19} Q9,${-WR - 13} 6,${-WR - 4} Z`, fill: '#A06C3E' }, sp);
+    E('rect', { x: -1.8, y: -WR - 26, width: 2.6, height: 22, rx: 1.3, fill: '#C89A68' }, sp);
+    if (!i) E('rect', { x: -6, y: -WR - 12, width: 12, height: 5, rx: 2, fill: '#E2BE62' }, sp); }
+  E('circle', { r: WR, fill: 'none', stroke: '#6E4426', 'stroke-width': 20 }, wIn);
+  E('circle', { r: WR, fill: 'none', stroke: '#9A6A3E', 'stroke-width': 13 }, wIn);
+  E('circle', { r: WR - 3, fill: 'none', stroke: '#C08E5A', 'stroke-width': 2.5, 'stroke-opacity': .7 }, wIn);
+  E('circle', { r: WR * .5, fill: 'none', stroke: '#B88E3A', 'stroke-width': 5 }, wIn);
+  E('circle', { r: 24, fill: '#B88E3A' }, wIn); E('circle', { r: 15, fill: '#E2BE62' }, wIn); E('circle', { r: 6, fill: '#8A6526' }, wIn);
+  E('path', { d: `M${f2(-WR * .7)},${f2(-WR * .55)} A${f2(WR * .9)},${f2(WR * .9)} 0 0 1 ${f2(-WR * .1)},${f2(-WR * .89)}`, stroke: '#E8B888', 'stroke-width': 3.5, fill: 'none', 'stroke-opacity': .5 }, wheel);
+  const cordAnim = itrPhoneLink(g, phoneHook, [PHX + 50, PHY - 26]);
+  let tv = 0, wa = 0;
+  g.setWheel = deg => { wa = deg; wheel.setAttribute('transform', `translate(${W[0]},${W[1]}) rotate(${f2(deg)})`); };
+  g.wheelGrip = (i = 0) => { const a = ((i ? 58 : -58) + wa) * Math.PI / 180; return [W[0] + Math.sin(a) * WR, W[1] - Math.cos(a) * WR]; };
+  g.setTelegraph = v => { tv = clamp(v, -1, 1); pointer.setAttribute('transform', `translate(${TC[0]},${TC[1]}) rotate(${f2(ANG(tv))})`); lever.setAttribute('transform', `translate(${TC[0]},${TC[1]}) rotate(${f2(LANG(tv))})`); };
+  g.telegraphGrip = () => { const a = LANG(tv) * Math.PI / 180; return [TC[0] + Math.sin(a) * LR, TC[1] - Math.cos(a) * LR]; };
+  g.anchors = { helm: [520, 792], wheel: W, wheelR: WR, telegraph: TC, officer: [1100, 800], binnacle: [BX, 800], captain: [950, 805],
+    phone: [PHX, PHY], phoneHandset: [PHX + 59, PHY], phoneMan: [215, 800], window: [835, 300], iceberg: [925, HZ], ahead: [800, HZ], horizon: HZ };
+  g.anim = at => { A.forEach(f => f(at)); cordAnim(at); op(lamp, .85 + .15 * wob(at * 1.2, 2)); op(tLamp, .8 + .2 * wob(at * 1.7, 4)); tf(view, Math.sin(at * .3) * 3, Math.sin(at * .5) * 2); };
   g.setWheel(0); g.setTelegraph(1); g.anim(0);
   return g;
 }
 
+/* lifeboat for the deck view, seen from the side and a little from above.
+   Local origin = middle of the near gunwale.  Returns { g, back, seat, front,
+   seats } — passengers go in `seat` (between the boat's inside and its near
+   side), so the hull hides their legs; seats are Human root points for
+   { sit:true, s: .5 }. */
+function itrDeckBoat(p, L, o = {}) {
+  const g = G(p), back = G(g), seat = G(g), front = G(g);
+  const Hd = L * .17, n = 22;
+  const sheer = u => -10 * u * u, half = L / 2;
+  let near = '', far = '';
+  for (let i = 0; i <= n; i++) { const u = -1 + 2 * i / n, x = u * half;
+    near += (i ? ' L' : 'M') + f2(x) + ',' + f2(sheer(u));
+    far = ` L${f2(x)},${f2(sheer(u) - 19 * Math.sqrt(Math.max(0, 1 - u * u)))}` + far; }
+  /* inside: far planking + thwarts */
+  E('path', { d: near + far + ' Z', fill: o.inside || '#7A5636' }, back);
+  E('path', { d: near + far + ' Z', fill: lgrad([[0, '#000', .25], [1, '#000', 0]]) }, back);
+  const NS = o.seats || 6, seats = [];
+  for (let k = 0; k < NS; k++) { const x = -half + 70 + k * (L - 140) / (NS - 1), u = x / half, yf = sheer(u) - 19 * Math.sqrt(1 - u * u);
+    E('path', { d: `M${f2(x - 7)},${f2(yf + 2)} L${f2(x + 7)},${f2(yf + 2)} L${f2(x + 9)},${f2(sheer(u))} L${f2(x - 9)},${f2(sheer(u))} Z`, fill: '#B8885A' }, back);
+    seats.push([f2(x), 86]); }
+  { let d = ''; for (let i = 0; i <= n; i++) { const u = -1 + 2 * i / n; d += (i ? ' L' : 'M') + f2(u * half) + ',' + f2(sheer(u) - 19 * Math.sqrt(Math.max(0, 1 - u * u))); }
+    E('path', { d, stroke: '#5E3E22', 'stroke-width': 5, fill: 'none', 'stroke-linejoin': 'round' }, back); }
+  /* near side of the hull */
+  const hull = `${near} Q${f2(L * .49)},${f2(Hd * .72)} ${f2(L * .36)},${f2(Hd)} L${f2(-L * .36)},${f2(Hd)} Q${f2(-L * .49)},${f2(Hd * .72)} ${f2(-half)},${f2(sheer(-1))} Z`;
+  E('path', { d: hull, fill: o.hull || '#DCD8CE' }, front);
+  E('path', { d: hull, fill: lgrad([[0, '#000', 0], [.45, '#000', .04], [1, '#0A1030', .38]]) }, front);
+  { let d = ''; for (let k = 1; k < 4; k++) { const y = Hd * k * .23; d += `M${f2(-L * .47 + k * 8)},${f2(y)} Q0,${f2(y + 4)} ${f2(L * .47 - k * 8)},${f2(y)} `; } E('path', { d, stroke: '#B9B4A8', 'stroke-width': 1.5, fill: 'none' }, front); }
+  E('path', { d: near, stroke: '#8A5A33', 'stroke-width': 7, fill: 'none', transform: 'translate(0,9)', 'stroke-linecap': 'round' }, front);
+  E('path', { d: near, stroke: '#5E3E22', 'stroke-width': 8, fill: 'none', 'stroke-linecap': 'round' }, front);
+  E('path', { d: near, stroke: '#A0703F', 'stroke-width': 2.5, fill: 'none', transform: 'translate(0,-2)', 'stroke-linecap': 'round' }, front);
+  { let d = ''; for (let x = -half + 30; x < half - 40; x += 38) d += `M${f2(x)},${f2(sheer(x / half) + 16)} q19,16 38,0 `; E('path', { d, stroke: '#C8B48A', 'stroke-width': 2.2, fill: 'none' }, front); }
+  E('rect', { x: -18, y: Hd * .38, width: 36, height: 16, rx: 3, fill: '#F2EEE4' }, front);
+  [-1, 1].forEach(s => E('rect', { x: s * (half - 18) - 4, y: -22, width: 8, height: 14, rx: 2, fill: '#3A3436' }, front));
+  return { g, back, seat, front, seats, L };
+}
+
 /* =====================================================================
    7) bgDeck(parent, o) — the boat deck at night, looking out to sea.
-   Structure:  g ▸ sky (level: stars, horizon, sea)
-                 ▸ ship (tilts: deck, deckhouse, funnel, boats, furniture)
-                     ▸ g.mid   ← add characters here (they tilt with the deck)
-                     ▸ g.front ← foreground (railing posts in front of mid? no: lamp post + chair)
-                 ▸ water (level flood line, over everything)
-   g.setTilt(deg)      tilt the ship around (800,720); + = clockwise (right side down)
-   g.setSlide(dx)      loose deckchairs/bench slide dx px along the deck
-   g.setBoat(i, k)     lower lifeboat i (0 = left, 1 = right) by k 0..1 (1 = gone below)
-   g.setWater(y)       screen y of the rising sea over the deck (null/≥1000 = none)
-   g.setSteam(k)       steam roaring from the funnel's escape pipe 0..1
-   g.anchors = { band:[330,780], bandRow:[[110,780],[260,780],[410,780],[560,780]],
-                 lifeboat:[1390,700], boat0:[730,470], boat1:[1390,470], rail:610, deck:770, door:[150,640] }
+   Structure:  g ▸ g.sky   (level: stars, horizon, sea)
+                 ▸ g.ship  (tilts: deck, deckhouse, funnel, lifeboats, rail, furniture)
+                     ▸ g.mid    ← add characters here (they tilt with the deck)
+                     ▸ g.front  (= g.over) foreground above g.mid
+                 ▸ steam plume (level) ▸ flood water (level) ▸ g.vignette
+   g.setTilt(deg)   tilt the ship around anchors.pivot (800,720); + = clockwise (right side down)
+   g.setSlide(dx)   loose deckchairs/bench slide dx px along the deck
+   g.setBoat(i, k)  lower lifeboat i (0 = left, 1 = right) by k 0..1 (1 = gone below the deck edge);
+                    its passengers go down with it
+   g.boats[i]       { g, back, seat, front, seats:[[x,y]×6], seatScale:.5, bx, L, k } — seat a passenger with
+                    Human(g.boats[i].seat).set({ x, y, sit:true, s:.5 }) using a seats[] point (boat-local);
+                    the hull side (front) hides the legs, so leave seats empty for "half-empty boats"
+   g.setWater(y)    screen y of the rising sea over the deck (null / ≥ 1000 = none)
+   g.setSteam(k)    steam roaring from the funnel's escape pipes 0..1: a plume billows across the
+                    top of the frame (stays level, reads at any tilt) + a hissing pipe flange
+   g.scaleAt(y)     Human scale for feet at ship-frame y (perspective: 1 at y 780, ≈ .55 at the rail)
+   g.toWorld(x, y)  ship-frame point → set point for the current tilt
+   g.fade(o) fades everything (characters included);  g.raiseFront() is a no-op here
+   g.anchors = { band:[330,780], bandRow:[[110,780],[260,780],[410,780],[560,780]] (s:1),
+     lifeboat:[1380,700] (boarding spot, s ≈ .8), boat0:[700,446], boat1:[1380,446] (gunwale centres),
+     rail:610, deck:770, door:[150,640], doorScale:.62, railScale:.55, boatScale:.5, horizon:400, pivot:[800,720] }
    (anchors are in the un-tilted ship frame: put characters inside g.mid)
    ===================================================================== */
 function bgDeck(parent, o = {}) {
@@ -1424,17 +1676,17 @@ function bgDeck(parent, o = {}) {
   const HZ = 400, PV = [800, 720];
   /* --- level sky + sea --- */
   const sky = G(g);
-  E('rect', { x: -900, y: -1000, width: 3400, height: HZ + 1002, fill: lgrad([[0, '#02040C'], [.6, '#070C20'], [.92, '#121D44'], [1, '#1C2A58']]) }, sky);
+  E('rect', { x: -1600, y: -1400, width: 4800, height: 500, fill: '#02040C' }, sky);
+  E('rect', { x: -1600, y: -1000, width: 4800, height: HZ + 1002, fill: lgrad([[0, '#02040C'], [.6, '#070C20'], [.92, '#121D44'], [1, '#1C2A58']]) }, sky);
   E('ellipse', { cx: 700, cy: 60, rx: 1300, ry: 130, fill: rgrad([[0, '#9FB2E8', .18], [.6, '#9FB2E8', .05], [1, '#9FB2E8', 0]]), transform: 'rotate(-18 700 60)' }, sky);
   const st = itrStars(sky, -900, -900, 3400, HZ + 880, 620, 21, { pow: 1.2 }); A.push(st.anim);
-  E('rect', { x: -900, y: HZ, width: 3400, height: 1600, fill: lgrad([[0, '#070B1A'], [.25, '#03050C'], [1, '#010204']]) }, sky);
-  E('rect', { x: -900, y: HZ - 1, width: 3400, height: 2, fill: '#3A4A7A', 'fill-opacity': .55 }, sky);
+  E('rect', { x: -1600, y: HZ, width: 4800, height: 1800, fill: lgrad([[0, '#070B1A'], [.25, '#03050C'], [1, '#010204']]) }, sky);
+  E('rect', { x: -1600, y: HZ - 1, width: 4800, height: 2, fill: '#3A4A7A', 'fill-opacity': .55 }, sky);
   { let d = ''; for (let i = 0; i < 80; i++) { const x = -800 + hash(i * 3.9) * 3200, y = HZ + 5 + Math.pow(hash(i * 2.2), 1.5) * 500; d += `M${f2(x)},${f2(y)} h${f2(4 + hash(i * 7) * 14)} `; } E('path', { d, stroke: '#C9D6FF', 'stroke-opacity': .2, 'stroke-width': 1.5 }, sky); }
   /* --- tilting ship --- */
   const ship = G(g); const S = G(ship);
-  /* deck planks */
   const DK = 610;
-  E('rect', { x: -1000, y: DK, width: 3600, height: 1200, fill: '#6E5A48' }, S);
+  E('rect', { x: -1400, y: DK, width: 4400, height: 1400, fill: '#6E5A48' }, S);
   { let d = ''; let y = DK, h = 8; while (y < 1700) { d += `M-1000,${f2(y)} H2600 `; y += h; h *= 1.09; } E('path', { d, stroke: '#4E3E32', 'stroke-width': 2 }, S);
     let b = ''; y = DK; h = 8; let r = 0; while (y < 1500) { for (let k = 0; k < 4; k++) { const x = -900 + hash(r * 9 + k) * 3400; b += `M${f2(x)},${f2(y + 1)} v${f2(h - 2)} `; } y += h; h *= 1.09; r++; }
     E('path', { d: b, stroke: '#54443A', 'stroke-width': 1.5 }, S);
@@ -1447,7 +1699,8 @@ function bgDeck(parent, o = {}) {
   { let d = ''; for (let x = -980; x < 300; x += 46) d += `M${x},236 V610 `; E('path', { d, stroke: '#ADA89E', 'stroke-width': 2 }, S); }
   [[-260, 330], [-120, 330], [250, 330], [-700, 330], [-560, 330]].forEach(([x, y]) => { E('rect', { x: x - 34, y: y - 50, width: 68, height: 90, rx: 6, fill: '#8E897E' }, S); E('rect', { x: x - 28, y: y - 44, width: 56, height: 78, rx: 4, fill: '#FFD98A' }, S);
     E('path', { d: `M${x},${y - 44} V${y + 34} M${x - 28},${y - 6} H${x + 28}`, stroke: '#8E897E', 'stroke-width': 4 }, S); itrGlow(S, x, y + 40, 90, 60, '#FFD98A', .22); });
-  /* door with warm light (first-class entrance) */
+  /* door with warm light (first-class entrance) — in perspective: a person at
+     anchors.door is drawn at scale ≈ .62 (see g.scaleAt) */
   E('rect', { x: 66, y: 400, width: 168, height: 214, fill: '#8E897E' }, S); E('rect', { x: 76, y: 410, width: 148, height: 204, fill: lgrad([[0, '#FFE7B0'], [1, '#E8A860']]) }, S);
   E('path', { d: 'M150,410 V614 M76,500 H224', stroke: '#8E6A44', 'stroke-width': 6 }, S);
   E('path', { d: 'M76,614 L-40,760 L380,760 L224,614 Z', fill: rgrad([[0, '#FFD98A', .35], [1, '#FFD98A', 0]], .5, 0, 1) }, S);
@@ -1459,7 +1712,7 @@ function bgDeck(parent, o = {}) {
   /* wall lamps */
   const lampsG = [-20, 300].map(x => { E('rect', { x: x - 4, y: 360, width: 8, height: 20, fill: '#5A5458' }, S); E('circle', { cx: x, cy: 352, r: 13, fill: '#FFF2C4' }, S); E('path', { d: `M${x - 13},346 Q${x},328 ${x + 13},346`, fill: '#5A5458' }, S);
     return itrGlow(S, x, 360, 210, 190, '#FFE2A0', .4); });
-  /* funnel base on the roof */
+  /* funnel base on the roof, with its steam escape pipes */
   { const fx0 = -250, fx1 = 300, fw = fx1 - fx0;
     E('rect', { x: fx0 - 40, y: 180, width: fw + 80, height: 46, rx: 6, fill: '#8E897E' }, S); E('rect', { x: fx0 - 40, y: 180, width: fw + 80, height: 8, rx: 4, fill: '#ADA89E' }, S);
     E('rect', { x: fx0, y: -1000, width: fw, height: 1182, fill: lgrad([[0, '#7A5420'], [.22, '#C9913E'], [.4, '#D49C48'], [.75, '#9E6E28'], [1, '#6E4A1A']], 0, 0, 1, 0) }, S);
@@ -1467,72 +1720,92 @@ function bgDeck(parent, o = {}) {
     let r = ''; for (let y = -980; y < 180; y += 52) for (let x = fx0 + 12; x < fx1; x += 22) r += `M${x},${y + 5} m-1.6,0 a1.6,1.6 0 1 0 3.2,0 a1.6,1.6 0 1 0 -3.2,0 `; E('path', { d: r, fill: '#E2B060', 'fill-opacity': .5 }, S);
     E('rect', { x: fx0, y: -1000, width: fw, height: 1182, fill: lgrad([[0, '#05081A', .55], [1, '#05081A', .1]]) }, S);
     E('rect', { x: fx1 - 70, y: -1000, width: 18, height: 1182, fill: '#B88E3A' }, S); E('rect', { x: fx1 - 66, y: -1000, width: 5, height: 1182, fill: '#E2BE62' }, S);
-    E('rect', { x: fx1 - 40, y: -1000, width: 12, height: 1182, fill: '#9A7430' }, S); }
-  const steamG = G(S); const steamP = [];
-  for (let i = 0; i < 12; i++) { const q = G(steamG); E('circle', { r: 30, fill: '#E6EAF2' }, q); E('circle', { cx: 16, cy: 8, r: 22, fill: '#C9CED8' }, q); steamP.push(q); }
-  /* ventilator cowl */
-  { const v = G(S); tf(v, 1060, DK);
-    E('rect', { x: -26, y: -150, width: 52, height: 150, fill: '#BDB8AE' }, v); E('rect', { x: 8, y: -150, width: 18, height: 150, fill: '#000', 'fill-opacity': .12 }, v);
-    E('path', { d: 'M-26,-150 Q-30,-230 40,-238 L70,-238 Q76,-180 26,-150 Z', fill: '#C9C4BA' }, v);
-    E('ellipse', { cx: 56, cy: -206, rx: 26, ry: 40, fill: '#D9D4CA', transform: 'rotate(-15 56 -206)' }, v);
-    E('ellipse', { cx: 58, cy: -206, rx: 18, ry: 31, fill: '#A8322D', transform: 'rotate(-15 58 -206)' }, v);
-    E('rect', { x: -34, y: -12, width: 68, height: 12, rx: 3, fill: '#8E897E' }, v); }
-  /* lifeboats in davits (beyond the rail) */
-  const boats = [], BXs = [730, 1390];
-  BXs.forEach((bx, i) => { const L = 430;
-    [-1, 1].forEach(sd => { const dx = bx + sd * (L / 2 + 22); const dv = G(S);
+    E('rect', { x: fx1 - 40, y: -1000, width: 12, height: 1182, fill: '#9A7430' }, S);
+    [60, 120].forEach(y => { E('rect', { x: fx1 - 76, y, width: 30, height: 9, rx: 3, fill: '#7A5A20' }, S); E('rect', { x: fx1 - 46, y: y + 2, width: 22, height: 7, rx: 3, fill: '#7A5A20' }, S); }); }
+  /* hissing leak at the escape-pipe flange (tilts with the ship) */
+  const leakG = G(S); const leak = [0, 1, 2, 3, 4].map(() => { const q = G(leakG); E('ellipse', { rx: 16, ry: 10, fill: '#EEF2F8' }, q); E('ellipse', { cx: 8, cy: -4, rx: 10, ry: 7, fill: '#FFFFFF' }, q); return q; });
+  /* lifeboats in quadrant davits beyond the rail: 30-ft boats in perspective
+     (≈ .5 scale) with room for six seated passengers each */
+  const boats = [], BXs = [700, 1380], BL = 580, BY = 446;
+  BXs.forEach((bx, i) => {
+    [-1, 1].forEach(sd => { const dx = bx + sd * (BL / 2 + 22); const dv = G(S);
       E('path', { d: `M${dx},${DK} V330 Q${dx},250 ${dx - sd * 70},250`, stroke: '#8E897E', 'stroke-width': 22, fill: 'none', 'stroke-linecap': 'round' }, dv);
       E('path', { d: `M${dx},${DK} V330 Q${dx},250 ${dx - sd * 70},250`, stroke: '#C9C4BA', 'stroke-width': 15, fill: 'none', 'stroke-linecap': 'round' }, dv);
+      E('path', { d: `M${dx - 4},${DK} V330 Q${dx - 4},256 ${dx - sd * 66},254`, stroke: '#E2DED4', 'stroke-width': 3, fill: 'none', 'stroke-opacity': .6 }, dv);
       E('rect', { x: dx - sd * 70 - 10, y: 244, width: 20, height: 26, rx: 4, fill: '#5A4A38' }, dv);
       E('rect', { x: dx - 22, y: DK - 10, width: 44, height: 14, rx: 3, fill: '#6E6A62' }, dv); });
     const bg = G(S, { 'clip-path': clipRect(-1000, -1000, 3600, DK + 1000) }); const falls = E('path', { stroke: '#C8B48A', 'stroke-width': 2.5, fill: 'none' }, bg);
-    const hull = G(bg); itrBoat(hull, 0, 0, L, { hull: '#D9D6CE', coverC: '#BDB6A2', cover: !!i });
-    boats.push({ bg, hull, falls, bx, L, k: 0 }); });
+    const B = itrDeckBoat(bg, BL, {});
+    boats.push({ g: B.g, back: B.back, seat: B.seat, front: B.front, seats: B.seats, seatScale: .5, falls, bx, L: BL, k: 0 }); });
   /* railing (deck edge) */
   { const r = G(S); let d = ''; for (let x = -1000; x <= 2600; x += 46) d += `M${x},${DK} V478 `;
     E('path', { d, stroke: '#9E998E', 'stroke-width': 6, 'clip-path': clipRect(330, 300, 2400, 400) }, r);
     E('path', { d: `M330,478 H2600 M330,530 H2600 M330,575 H2600`, stroke: '#C9C4BA', 'stroke-width': 7 }, r);
     E('path', { d: `M330,474 H2600`, stroke: '#8A6A48', 'stroke-width': 12 }, r); E('path', { d: `M330,470 H2600`, stroke: '#A8845E', 'stroke-width': 4 }, r); }
+  /* ventilator cowl (on the deck, in front of the rail) */
+  { const v = G(S); tf(v, 1040, 636, 0, .92);
+    E('ellipse', { cx: 10, cy: 2, rx: 50, ry: 8, fill: '#000', 'fill-opacity': .25 }, v);
+    E('rect', { x: -26, y: -150, width: 52, height: 150, fill: '#BDB8AE' }, v); E('rect', { x: 8, y: -150, width: 18, height: 150, fill: '#000', 'fill-opacity': .12 }, v);
+    E('path', { d: 'M-26,-150 Q-30,-230 40,-238 L70,-238 Q76,-180 26,-150 Z', fill: '#C9C4BA' }, v);
+    E('ellipse', { cx: 56, cy: -206, rx: 26, ry: 40, fill: '#D9D4CA', transform: 'rotate(-15 56 -206)' }, v);
+    E('ellipse', { cx: 58, cy: -206, rx: 18, ry: 31, fill: '#A8322D', transform: 'rotate(-15 58 -206)' }, v);
+    E('rect', { x: -34, y: -12, width: 68, height: 12, rx: 3, fill: '#8E897E' }, v); }
   /* loose furniture */
   const loose = G(S); const furn = [];
   const bench = (x, y) => { const b = G(loose); tf(b, x, y);
+    E('ellipse', { cx: 0, cy: 2, rx: 150, ry: 9, fill: '#000', 'fill-opacity': .22 }, b);
     E('rect', { x: -130, y: -150, width: 260, height: 14, rx: 4, fill: '#9A6A3A' }, b); E('rect', { x: -130, y: -126, width: 260, height: 14, rx: 4, fill: '#9A6A3A' }, b);
     E('rect', { x: -136, y: -70, width: 272, height: 16, rx: 4, fill: '#A87444' }, b); E('rect', { x: -136, y: -70, width: 272, height: 5, rx: 2, fill: '#C08E5A' }, b);
     [-120, 120].forEach(sx => E('path', { d: `M${sx},0 V-60 M${sx},-60 L${sx * 1.02},-156`, stroke: '#3A3436', 'stroke-width': 9, fill: 'none', 'stroke-linecap': 'round' }, b));
     return b; };
+  /* steamer deckchair, side view: wooden frame + a thick sagging canvas sling */
   const chair = (x, y, c) => { const b = G(loose); tf(b, x, y);
-    E('path', { d: 'M-60,0 L-30,-70 L70,-70 L90,0', stroke: '#7A4E2E', 'stroke-width': 7, fill: 'none', 'stroke-linecap': 'round' }, b);
-    E('path', { d: 'M-50,-62 L66,-62 L58,-80 L-46,-80 Z', fill: '#8E5E36' }, b);
-    E('path', { d: 'M-48,-80 L-80,-190 L-58,-196 L-26,-80 Z', fill: '#8E5E36' }, b);
-    E('path', { d: 'M-44,-84 L-72,-180 L-60,-184 L-32,-84 Z', fill: c }, b); E('path', { d: 'M-46,-66 L60,-66 L54,-76 L-42,-76 Z', fill: c }, b);
-    E('path', { d: 'M-30,-70 L-56,-120', stroke: '#7A4E2E', 'stroke-width': 6 }, b);
+    E('ellipse', { cx: 20, cy: 2, rx: 110, ry: 9, fill: '#000', 'fill-opacity': .25 }, b);
+    E('path', { d: 'M-72,-196 L-36,-74 L-52,0 M-36,-74 L100,-50 L104,0', stroke: '#5E3A20', 'stroke-width': 10, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, b);
+    const sl = 'M-64,-182 Q-48,-118 -30,-84 Q-4,-50 40,-58 Q78,-64 110,-54';
+    E('path', { d: sl, stroke: c, 'stroke-width': 24, fill: 'none', 'stroke-linecap': 'round' }, b);
+    E('path', { d: sl, stroke: shade(c, -.25), 'stroke-width': 24, fill: 'none', 'stroke-dasharray': '9 13', 'stroke-opacity': .45 }, b);
+    E('path', { d: sl, stroke: '#fff', 'stroke-opacity': .2, 'stroke-width': 7, fill: 'none', transform: 'translate(-3,-6)', 'stroke-linecap': 'round' }, b);
+    E('path', { d: 'M-60,-120 L30,-104 M24,-104 L28,-58', stroke: '#8E5E36', 'stroke-width': 8, fill: 'none', 'stroke-linecap': 'round' }, b);
     return b; };
-  furn.push({ n: bench(800, 750, 1), x: 800, y: 750, m: 1 }); furn.push({ n: chair(1080, 800, '#3E6B8E'), x: 1080, y: 800, m: 1.4 }); furn.push({ n: chair(1235, 812, '#8E3B32'), x: 1235, y: 812, m: 1.2 });
+  furn.push({ n: bench(800, 750), x: 800, y: 750, m: 1 }); furn.push({ n: chair(1080, 800, '#3E6B8E'), x: 1080, y: 800, m: 1.4 }); furn.push({ n: chair(1235, 812, '#8E3B32'), x: 1235, y: 812, m: 1.2 });
   /* deck lamp post */
   { const lp = G(S); tf(lp, 1560, DK + 4); E('rect', { x: -5, y: -150, width: 10, height: 150, fill: '#3A3436' }, lp); E('circle', { cx: 0, cy: -164, r: 15, fill: '#FFF2C4' }, lp);
     E('path', { d: 'M-16,-170 Q0,-190 16,-170', fill: '#3A3436' }, lp); lampsG.push(itrGlow(lp, 0, -164, 120, 100, '#FFE2A0', .4)); }
   g.mid = G(ship);
-  g.front = G(ship); g.raiseFront = () => {};
+  g.front = G(ship); g.over = g.front; g.raiseFront = () => {}; g.fade = v => op(g, v);
+  /* --- level steam plume (world space): roars from the escape pipes above the
+     frame and billows across the top of the picture, whatever the tilt --- */
+  const steamW = G(g); const plume = [];
+  for (let i = 0; i < 16; i++) { const q = G(steamW); E('circle', { r: 34, fill: '#DDE3EC' }, q); E('circle', { cx: 16, cy: 12, r: 26, fill: '#B9C1CE' }, q); E('circle', { cx: -14, cy: -12, r: 22, fill: '#FFFFFF' }, q); plume.push(q); }
   /* --- level flood water (over everything) --- */
   const water = G(g); const wBody = E('path', { fill: '#0E2440', 'fill-opacity': .82 }, water), wTop = E('path', { fill: 'none', stroke: '#8FB8E8', 'stroke-width': 3, 'stroke-opacity': .6 }, water);
-  const vig = itrVignette(g, .5, .42);
-  let tilt = 0, slide = 0, waterY = null, steamK = 0;
-  g.ship = ship; g.sky = sky;
+  if (o.vignette !== false) g.vignette = itrVignette(g, .5, .42);
+  let tilt = 0, waterY = null, steamK = 0;
+  const rot = (x, y) => { const a = tilt * Math.PI / 180, c = Math.cos(a), s = Math.sin(a), dx = x - PV[0], dy = y - PV[1]; return [PV[0] + dx * c - dy * s, PV[1] + dx * s + dy * c]; };
+  g.ship = ship; g.sky = sky; g.boats = boats;
   g.setTilt = deg => { tilt = deg; ship.setAttribute('transform', `rotate(${f2(deg)} ${PV[0]} ${PV[1]})`); };
-  g.setSlide = dx => { slide = dx; furn.forEach(f => tf(f.n, f.x + dx * f.m, f.y, clamp(dx * .02 * f.m, -8, 8))); };
+  g.setSlide = dx => { furn.forEach(f => tf(f.n, f.x + dx * f.m, f.y, clamp(dx * .02 * f.m, -8, 8))); };
   g.setBoat = (i, k) => { const b = boats[i]; if (!b) return; b.k = clamp(k); };
   g.setWater = y => { waterY = (y == null || y >= 1000) ? null : y; };
   g.setSteam = k => { steamK = clamp(k); };
-  g.anchors = { band: [330, 780], bandRow: [[110, 780], [260, 780], [410, 780], [560, 780]], lifeboat: [1390, 700], boat0: [730, 470], boat1: [1390, 470], rail: DK, deck: 770, door: [150, 640] };
+  g.scaleAt = y => clamp((y - HZ) / 380, .15, 1.6);
+  g.toWorld = (x, y) => rot(x, y);
+  g.anchors = { band: [330, 780], bandRow: [[110, 780], [260, 780], [410, 780], [560, 780]], lifeboat: [1380, 700], boat0: [BXs[0], BY], boat1: [BXs[1], BY],
+    rail: DK, deck: 770, door: [150, 640], doorScale: .62, railScale: .55, boatScale: .5, horizon: HZ, pivot: PV };
   g.anim = at => {
     A.forEach(f => f(at));
     lampsG.forEach((l, i) => op(l, .8 + .2 * wob(at * 1.8, i * 2)));
-    boats.forEach((b, i) => { const drop = b.k * 260, sw = Math.sin(at * .9 + i) * (1.2 + b.k * 1.5), y = 528 + drop;
-      b.hull.setAttribute('transform', `translate(${b.bx},${f2(y)}) rotate(${f2(sw)})`);
-      const e = b.L / 2 + 22, ex = b.L / 2 - 14; b.falls.setAttribute('d', `M${b.bx - e + 70},262 L${f2(b.bx - ex)},${f2(y - 104)} M${b.bx + e - 70},262 L${f2(b.bx + ex)},${f2(y - 104)}`);
-      op(b.hull, 1); });
-    steamP.forEach((q, i) => { const ph = (at * .9 + i / 12) % 1; tf(q, 240 + ph * 300 + Math.sin(at * 3 + i) * 10, 60 - ph * 420, 0, .6 + ph * 2.4); op(q, steamK * .85 * (1 - ph) * Math.min(1, ph * 6)); });
-    if (waterY != null) { let d = '', d2 = ''; for (let x = -400; x <= 2000; x += 40) d += (d ? ' L' : 'M') + x + ',' + f2(waterY + 6 * Math.sin(x * .015 + at * 1.8) + 3 * Math.sin(x * .04 - at * 2.6));
+    boats.forEach((b, i) => { const drop = b.k * 300, sw = Math.sin(at * .9 + i) * (1 + b.k * 1.4), y = BY + drop;
+      b.g.setAttribute('transform', `translate(${b.bx},${f2(y)}) rotate(${f2(sw)})`);
+      const e = b.L / 2 + 22, ex = b.L / 2 - 18; b.falls.setAttribute('d', `M${b.bx - e + 70},262 L${f2(b.bx - ex)},${f2(y - 22)} M${b.bx + e - 70},262 L${f2(b.bx + ex)},${f2(y - 22)}`); });
+    if (steamK > 0) { op(steamW, 1); op(leakG, 1); const e0 = rot(244, -20);
+      plume.forEach((q, i) => { const ph = (at * .45 + i / plume.length) % 1, yT = 150 + 46 * Math.sin(i * 1.7);
+        const x = e0[0] + 900 * (ph * .55 + easeOut(ph) * .45) + Math.sin(at * 1.6 + i) * 14, y = lerp(e0[1], yT, Math.pow(ph, .7)) - 24 * Math.sin(ph * Math.PI);
+        tf(q, x, y, 0, .7 + ph * 2.8); op(q, steamK * .92 * Math.min(1, ph * 6) * (1 - ph)); });
+      leak.forEach((q, i) => { const ph = (at * 1.4 + i / 5) % 1; tf(q, 256 + ph * 130, 128 - ph * 40 + Math.sin(at * 5 + i) * 3, 0, .5 + ph * 1.6); op(q, steamK * .8 * (1 - ph) * Math.min(1, ph * 8)); });
+    } else { op(steamW, 0); op(leakG, 0); }
+    if (waterY != null) { let d = ''; for (let x = -400; x <= 2000; x += 40) d += (d ? ' L' : 'M') + x + ',' + f2(waterY + 6 * Math.sin(x * .015 + at * 1.8) + 3 * Math.sin(x * .04 - at * 2.6));
       wBody.setAttribute('d', d + ' L2000,1400 L-400,1400 Z'); wTop.setAttribute('d', d); op(water, 1); } else op(water, 0);
   };
   g.setTilt(0); g.setSlide(0); g.anim(0);
