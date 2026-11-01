@@ -113,7 +113,7 @@ function initCore(svg) {
 
 /* ---------- cameră: [[t, cx, cy, zoom], ...] ---------- */
 function camera(g, t, K, f = ease) {
-  const v = keyed(t, K, f); const z = v[2];
+  const v = keyed(t, K.map(k => [k[0], k.slice(1)]), f); const z = v[2];
   g.setAttribute('transform', 'translate(800,450) scale(' + f2(z * 1000) / 1000 + ') translate(' + f2(-v[0]) + ',' + f2(-v[1]) + ')');
 }
 
@@ -131,3 +131,6 @@ function show(n, t, tIn, tOut = 1e9, o = {}) {
 }
 /* grup poziționat, cu coordonate de bază memorate */
 function N(parent, x = 0, y = 0, s = 1, r = 0) { const g = G(parent); g._x = x; g._y = y; g._s = s; g._r = r; tf(g, x, y, r, s); return g; }
+
+/* înregistrarea unei scene: SCENE(i, { build(world, cue) { ...; return (lt, at) => {...} } }) */
+function SCENE(i, def) { (window.SCENE_DEFS = window.SCENE_DEFS || [])[i] = def; }
