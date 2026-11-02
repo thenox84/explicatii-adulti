@@ -33,17 +33,3 @@ Prima versiune (doar imagini și subtitrări în română) este în `v1.html`.
 Narațiunea este generată cu modelul de voce liber **Kokoro-82M** (licență Apache-2.0):
 naratorul — vocea `bm_george`; personajele — `am_michael` (Tudor), `af_heart` (agentul),
 `bf_emma`, `af_bella` (ajutoarele, chatbotul).
-
-## Titanic: Practically Unsinkable
-
-Film animat în stil desen animat (~5,7 minute), narat în engleză cu 10 voci Kokoro, cu
-subtitrări: scufundarea Titanicului spusă ca o comedie a greșelilor omenești (cuvântul
-„practically” din reclame, avertismentele despre gheață ignorate, bărcile de salvare prea
-puține), cu un final sincer despre cei pierduți și regulile de siguranță care au urmat.
-
-Vizionare: https://thenox84.github.io/explicatii-adulti/titanic/
-
-Fișierele sunt în `titanic/` (același motor de animație; personajele în `js/cast.js`,
-nava și marea în `js/world.js`, decorurile interioare în `js/interiors.js`, gagurile
-comune în `js/gags.js`). Narațiunea se regenerează cu
-`python tools/make_narration.py <model.onnx> <voices.bin> <cache> titanic`.
