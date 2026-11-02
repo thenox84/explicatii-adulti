@@ -39,7 +39,7 @@ const SPK = {}; Object.entries((window.SCRIPT && window.SCRIPT.voices) || {}).fo
     if (def) { try { update = def.build(world, cue) || update; } catch (e) { console.error('scene', i, e); } }
     else TX(world, 800, 450, 'Scene ' + i + ' — coming soon', 40, '#fff', { a: 'middle' });
     sg.style.display = 'none';
-    return { i, sd, tm, cue, sg, world, iris, update, start: tm.start, dur: tm.dur, title: sd.title };
+    return { i, sd, tm, cue, sg, world, iris, cid, update, start: tm.start, dur: tm.dur, title: sd.title, _r: null, _clip: true };
   });
 
   /* semnul de capitol (de lemn, atârnat) */
@@ -59,7 +59,9 @@ const SPK = {}; Object.entries((window.SCRIPT && window.SCRIPT.voices) || {}).fo
     if (active !== s) { if (active) active.sg.style.display = 'none'; s.sg.style.display = ''; active = s; }
     const lt = Math.min(T - s.start, s.dur), last = s.i === SC.length - 1;
     const r = 1000 * easeOut(clamp(lt / .9)) * (last ? 1 : easeOut(clamp((s.dur - lt) / .7)));
-    s.iris.setAttribute('r', f2(Math.max(0, r)));
+    /* irisul: scrie doar când se schimbă; când e complet deschis, scoate decuparea (altfel browserul redesenează toată scena la fiecare cadru) */
+    const rr = f2(Math.max(0, r)); if (s._r !== rr) { s._r = rr; s.iris.setAttribute('r', rr); }
+    const clipOn = rr < 999.5; if (s._clip !== clipOn) { s._clip = clipOn; s.sg.setAttribute('clip-path', clipOn ? `url(#${s.cid})` : 'none'); }
     try { s.update(lt, A); } catch (e) { if (!s.err) { console.error('scene', s.i, e); s.err = 1; } }
     /* capitol */
     if (s.title) {
